@@ -1,0 +1,604 @@
+/* ================================================================
+   TeachingEvaluation.css  — Light theme
+   ================================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;700&display=swap');
+
+:root {
+    --red: #C0001D;
+    --red-deep: #8B0015;
+    --red-light: #FFF0F2;
+    --red-glow: rgba(192, 0, 29, 0.12);
+    --white: #FFFFFF;
+    --bg: #F7F7F5;
+    --card-bg: #FFFFFF;
+    --border: #E5E5E0;
+    --text: #1A1A1A;
+    --muted: #6B6B65;
+    --radius: 12px;
+}
+
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+/* ── PAGE HEADER ── */
+.page-header {
+    background: linear-gradient(135deg, var(--red-deep) 0%, var(--red) 100%);
+    padding: 2.5rem 2.5rem 2.2rem;
+    position: relative;
+    overflow: hidden;
+}
+
+    .page-header::before {
+        content: 'EVALUATE';
+        position: absolute;
+        right: -1rem;
+        top: 50%;
+        transform: translateY(-50%);
+        font-family: 'Bebas Neue', sans-serif;
+        font-size: 8rem;
+        color: rgba(255,255,255,.06);
+        pointer-events: none;
+        letter-spacing: 4px;
+        white-space: nowrap;
+    }
+
+.back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    color: rgba(255,255,255,.75);
+    font-size: .82rem;
+    text-decoration: none;
+    margin-bottom: 1rem;
+    transition: color .2s;
+}
+
+    .back-btn:hover {
+        color: #FFFFFF;
+    }
+
+.page-header h1 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 2.6rem;
+    letter-spacing: 3px;
+    color: #FFFFFF;
+    line-height: 1;
+}
+
+.page-header p {
+    margin-top: .5rem;
+    color: rgba(255,255,255,.75);
+    font-size: .9rem;
+}
+
+/* ── MAIN ── */
+.main {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 5rem;
+}
+
+/* ── ALERTS ── */
+.alert {
+    padding: .9rem 1.2rem;
+    border-radius: 8px;
+    font-size: .88rem;
+    margin-bottom: 1.5rem;
+    display: none;
+}
+
+.alert-success {
+    background: #F0FFF7;
+    border: 1px solid #B7EBD0;
+    color: #1A7A47;
+    display: block;
+}
+
+.alert-error {
+    background: #FFF5F6;
+    border: 1px solid #FFCCD2;
+    color: #C0001D;
+    display: block;
+}
+
+/* ── ANONYMOUS NOTICE ── */
+.anon-notice {
+    background: #FFFBF0;
+    border: 1px solid #F0E0A0;
+    color: #7A6000;
+    border-radius: 8px;
+    padding: .7rem 1.1rem;
+    font-size: .82rem;
+    margin-bottom: 1.8rem;
+}
+
+/* ── STATUS CARD ── */
+.status-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.8rem 2rem;
+    display: flex;
+    align-items: center;
+    gap: 2.5rem;
+    margin-bottom: 1.2rem;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 1px 8px rgba(0,0,0,.06);
+}
+
+    .status-card::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 4px;
+        background: var(--red);
+    }
+
+.gauge-wrap {
+    flex-shrink: 0;
+    position: relative;
+    width: 100px;
+    height: 60px;
+}
+
+.gauge-svg {
+    width: 100px;
+}
+
+.gauge-pct {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.5rem;
+    color: var(--text);
+}
+
+.status-info {
+    flex: 1;
+}
+
+    .status-info h3 {
+        font-size: .82rem;
+        font-weight: 600;
+        color: var(--muted);
+        margin-bottom: .7rem;
+        text-transform: uppercase;
+        letter-spacing: .8px;
+    }
+
+.status-row {
+    display: flex;
+    gap: 2.5rem;
+    flex-wrap: wrap;
+}
+
+.status-item label {
+    font-size: .7rem;
+    color: var(--muted);
+    display: block;
+    margin-bottom: .2rem;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+}
+
+.status-item .val {
+    font-size: .92rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.date-green {
+    color: #1A7A47 !important;
+}
+
+/* Badges */
+.badge {
+    display: inline-block;
+    padding: .2rem .8rem;
+    border-radius: 50px;
+    font-size: .75rem;
+    font-weight: 700;
+    letter-spacing: .5px;
+}
+
+.badge-open {
+    background: #F0FFF7;
+    color: #1A7A47;
+    border: 1px solid #B7EBD0;
+}
+
+.badge-closed {
+    background: #FFF5F6;
+    color: #C0001D;
+    border: 1px solid #FFCCD2;
+}
+
+/* Progress bar */
+.progress-bar {
+    height: 5px;
+    background: #EFEFEC;
+    border-radius: 3px;
+    margin-top: 1rem;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: var(--red);
+    border-radius: 3px;
+    transition: width .6s ease;
+    width: 0%;
+}
+
+/* ── SECTION LABEL ── */
+.section-label {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1rem;
+    letter-spacing: 2.5px;
+    color: var(--red);
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: .7rem;
+}
+
+    .section-label::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: var(--border);
+    }
+
+/* ── COURSE GRID ── */
+.course-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.course-card {
+    background: var(--card-bg);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 1.1rem 1.3rem;
+    cursor: pointer;
+    transition: border-color .2s, box-shadow .2s, transform .15s;
+    position: relative;
+    user-select: none;
+}
+
+    .course-card:hover {
+        border-color: var(--red);
+        box-shadow: 0 4px 16px var(--red-glow);
+        transform: translateY(-2px);
+    }
+
+    .course-card.selected {
+        border-color: var(--red);
+        background: var(--red-light);
+        box-shadow: 0 0 0 3px var(--red-glow);
+    }
+
+    .course-card.done {
+        opacity: .6;
+        cursor: default;
+        pointer-events: none;
+        background: #FAFAFA;
+    }
+
+.course-code {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.1rem;
+    letter-spacing: 1.5px;
+    color: var(--red);
+}
+
+.course-name {
+    font-size: .82rem;
+    color: var(--muted);
+    margin-top: .15rem;
+    line-height: 1.4;
+}
+
+.course-lecturer {
+    font-size: .8rem;
+    color: var(--text);
+    margin-top: .6rem;
+    font-weight: 500;
+}
+
+.done-tick {
+    position: absolute;
+    top: .7rem;
+    right: .7rem;
+    width: 22px;
+    height: 22px;
+    background: #1A7A47;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: .65rem;
+    font-weight: 700;
+}
+
+.done-label {
+    margin-top: .5rem;
+    font-size: .72rem;
+    color: #1A7A47;
+    font-weight: 600;
+    letter-spacing: .3px;
+}
+
+/* ── FORM CARD ── */
+.form-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+    margin-bottom: 2rem;
+    display: none;
+    box-shadow: 0 2px 16px rgba(0,0,0,.06);
+}
+
+    .form-card.visible {
+        display: block;
+        animation: slideIn .3s ease;
+    }
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(14px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.form-header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1.2rem;
+    margin-bottom: 1.8rem;
+}
+
+    .form-header h2 {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: var(--text);
+    }
+
+    .form-header p {
+        font-size: .82rem;
+        color: var(--muted);
+        margin-top: .3rem;
+    }
+
+/* Questions */
+.question-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.6rem;
+}
+
+.question-item {
+}
+
+.question-text {
+    font-size: .9rem;
+    line-height: 1.6;
+    margin-bottom: .75rem;
+    color: var(--text);
+}
+
+.question-num {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: .9rem;
+    color: var(--red);
+    margin-right: .3rem;
+}
+
+/* Likert */
+.likert {
+    display: flex;
+    gap: .5rem;
+    flex-wrap: wrap;
+}
+
+    .likert input[type=radio] {
+        display: none;
+    }
+
+    .likert label {
+        width: 46px;
+        height: 46px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        border: 1.5px solid var(--border);
+        font-size: .9rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all .18s;
+        color: var(--muted);
+        background: var(--bg);
+    }
+
+        .likert label:hover {
+            border-color: var(--red);
+            color: var(--red);
+            background: var(--red-light);
+        }
+
+    .likert input[type=radio]:checked + label {
+        background: var(--red);
+        border-color: var(--red);
+        color: #FFFFFF;
+        box-shadow: 0 2px 10px var(--red-glow);
+    }
+
+.likert-legend {
+    display: flex;
+    justify-content: space-between;
+    font-size: .7rem;
+    color: var(--muted);
+    margin-top: .4rem;
+    padding: 0 2px;
+}
+
+/* Comment */
+.comment-wrap {
+    margin-top: 2rem;
+}
+
+    .comment-wrap label {
+        font-size: .85rem;
+        color: var(--muted);
+        display: block;
+        margin-bottom: .5rem;
+        font-weight: 500;
+    }
+
+textarea.comment-box {
+    width: 100%;
+    background: var(--bg);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: .88rem;
+    padding: .9rem 1rem;
+    resize: vertical;
+    min-height: 100px;
+    transition: border-color .2s;
+}
+
+    textarea.comment-box:focus {
+        outline: none;
+        border-color: var(--red);
+        background: #FFFFFF;
+    }
+
+/* Submit */
+.btn-submit {
+    display: block;
+    width: 100%;
+    margin-top: 2rem;
+    padding: 1rem;
+    background: var(--red);
+    color: #FFFFFF;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.2rem;
+    letter-spacing: 3px;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background .2s, transform .15s, box-shadow .2s;
+}
+
+    .btn-submit:hover {
+        background: #A8001A;
+        transform: translateY(-1px);
+        box-shadow: 0 6px 20px rgba(192,0,29,.3);
+    }
+
+    .btn-submit:active {
+        transform: translateY(0);
+    }
+
+/* Divider */
+.question-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+}
+
+/* Completed banner */
+.completed-banner {
+    text-align: center;
+    padding: 3.5rem 2rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    display: none;
+    margin-bottom: 2rem;
+}
+
+    .completed-banner.visible {
+        display: block;
+    }
+
+.big-check {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: #F0FFF7;
+    border: 2px solid #B7EBD0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    margin: 0 auto 1.5rem;
+}
+
+.completed-banner h2 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 2rem;
+    letter-spacing: 3px;
+    color: var(--text);
+    margin-bottom: .5rem;
+}
+
+.completed-banner p {
+    color: var(--muted);
+    font-size: .9rem;
+}
+
+/* ── RESPONSIVE ── */
+@media (max-width: 600px) {
+    .page-header {
+        padding: 1.8rem 1rem;
+    }
+
+        .page-header h1 {
+            font-size: 2rem;
+        }
+
+    .main {
+        padding: 1.5rem 1rem 4rem;
+    }
+
+    .status-card {
+        flex-direction: column;
+        gap: 1rem;
+        align-items: flex-start;
+    }
+
+    .form-card {
+        padding: 1.2rem;
+    }
+
+    .status-row {
+        gap: 1.2rem;
+    }
+}
