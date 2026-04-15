@@ -162,6 +162,7 @@
     <Content Include="Scripts\jquery-3.7.0.slim.js" />
     <Content Include="Scripts\jquery-3.7.0.slim.min.js" />
     <Content Include="Scripts\modernizr-2.8.3.js" />
+    <Content Include="Scripts\TimetableMatching.js" />
     <Content Include="Scripts\WebForms\DetailsView.js" />
     <Content Include="Scripts\WebForms\Focus.js" />
     <Content Include="Scripts\WebForms\GridView.js" />
@@ -186,8 +187,9 @@
     <Content Include="Site.Master" />
     <Content Include="Styles\NavBar.css" />
     <Content Include="Styles\teachingEvaluation.css" />
-    <Content Include="TeachingEvaluation %282%29.aspx" />
+    <Content Include="Styles\TimetableMatching.css" />
     <Content Include="teachingEvaluation.aspx" />
+    <Content Include="TimetableMatching.aspx" />
     <Content Include="ViewSwitcher.ascx" />
     <Content Include="Web.config" />
     <Content Include="Bundle.config" />
@@ -245,6 +247,13 @@
     </Compile>
     <Compile Include="teachingEvaluation.aspx.designer.cs">
       <DependentUpon>teachingEvaluation.aspx</DependentUpon>
+    </Compile>
+    <Compile Include="TimetableMatching.aspx.cs">
+      <DependentUpon>TimetableMatching.aspx</DependentUpon>
+      <SubType>ASPXCodeBehind</SubType>
+    </Compile>
+    <Compile Include="TimetableMatching.aspx.designer.cs">
+      <DependentUpon>TimetableMatching.aspx</DependentUpon>
     </Compile>
     <Compile Include="ViewSwitcher.ascx.cs">
       <DependentUpon>ViewSwitcher.ascx</DependentUpon>

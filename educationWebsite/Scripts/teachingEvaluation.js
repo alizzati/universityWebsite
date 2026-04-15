@@ -8,20 +8,26 @@
     function animateGauge() {
         var arc = document.getElementById('gaugeArc');
         var fill = document.getElementById('progressFill');
-
-        // pctValue is injected by ASPX inline: window.evalPct
         var pct = window.evalPct || 0;
 
         // Gauge semicircle dasharray = 126
         var offset = 126 - (126 * pct / 100);
 
+        // Determine color: green if > 50%, red otherwise
+        var isGreen = pct > 50;
+        var strokeColor = isGreen ? '#1A7A47' : '#C0001D';
+
         setTimeout(function () {
             if (arc) {
-                arc.style.transition = 'stroke-dashoffset .8s ease';
+                arc.style.transition = 'stroke-dashoffset .8s ease, stroke .6s ease';
                 arc.setAttribute('stroke-dashoffset', offset);
+                arc.setAttribute('stroke', strokeColor);
             }
             if (fill) {
+                fill.style.transition = 'width .6s ease, background .6s ease';
                 fill.style.width = pct + '%';
+                if (isGreen) fill.classList.add('green');
+                else fill.classList.remove('green');
             }
         }, 300);
 
@@ -36,22 +42,17 @@
 
     /* ── Select course card ─────────────────────────────────────────── */
     window.selectCourse = function (el, courseId, courseCode, courseName) {
-        // Deselect all
         var cards = document.querySelectorAll('.course-card:not(.done)');
         cards.forEach(function (c) { c.classList.remove('selected'); });
 
-        // Select clicked
         el.classList.add('selected');
 
-        // Store courseId in hidden field
         var hf = document.getElementById(window.hfCourseIdClientId);
         if (hf) hf.value = courseId;
 
-        // Update form header
         var titleEl = document.getElementById('selectedCourseName');
         if (titleEl) titleEl.textContent = courseCode + ' \u2014 ' + courseName;
 
-        // Show form card
         var formCard = document.getElementById('evalForm');
         if (formCard) {
             formCard.classList.add('visible');
@@ -67,7 +68,6 @@
         if (!btn) return;
 
         btn.addEventListener('click', function (e) {
-            // Check course selected
             var hf = document.getElementById(window.hfCourseIdClientId);
             if (!hf || !hf.value || hf.value === '0') {
                 e.preventDefault();
@@ -75,7 +75,6 @@
                 return;
             }
 
-            // Check all likert questions answered
             var form = document.getElementById('evalForm');
             if (!form) return;
 
@@ -89,12 +88,8 @@
             var allAnswered = true;
             var groupNames = Object.keys(groups);
             for (var i = 0; i < groupNames.length; i++) {
-                var group = groups[groupNames[i]];
-                var answered = group.some(function (r) { return r.checked; });
-                if (!answered) {
-                    allAnswered = false;
-                    break;
-                }
+                var answered = groups[groupNames[i]].some(function (r) { return r.checked; });
+                if (!answered) { allAnswered = false; break; }
             }
 
             if (!allAnswered) {
@@ -104,10 +99,23 @@
         });
     }
 
+    /* ── Page loader ────────────────────────────────────────────────── */
+    function initPageLoader() {
+        var loader = document.getElementById('pageLoader');
+        if (!loader) return;
+        window.addEventListener('load', function () {
+            setTimeout(function () {
+                loader.classList.add('hidden');
+                setTimeout(function () { loader.style.display = 'none'; }, 400);
+            }, 600);
+        });
+    }
+
     /* ── Init ───────────────────────────────────────────────────────── */
     document.addEventListener('DOMContentLoaded', function () {
         animateGauge();
         setupSubmitValidation();
+        initPageLoader();
     });
 
 })();

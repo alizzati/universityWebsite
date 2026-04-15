@@ -1,0 +1,404 @@
+/* ================================================================
+   TimetableMatching.css
+   ================================================================ */
+
+/* ── INFO CARD ── */
+.info-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.6rem 2rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 1px 8px rgba(0,0,0,.06);
+    position: relative;
+    overflow: hidden;
+}
+
+.info-card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: var(--red);
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 1.2rem 2rem;
+}
+
+.info-item-wide {
+    grid-column: span 2;
+}
+
+.info-item label {
+    font-size: .7rem;
+    text-transform: uppercase;
+    letter-spacing: .6px;
+    color: var(--muted);
+    display: block;
+    margin-bottom: .3rem;
+}
+
+.info-item .val {
+    font-size: .92rem;
+    font-weight: 600;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.rb-label {
+    font-size: .85rem;
+    color: var(--text);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: .3rem;
+    font-weight: 500;
+}
+
+/* ── TABLE ── */
+.table-wrap {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 2rem;
+    box-shadow: 0 1px 8px rgba(0,0,0,.06);
+    overflow-x: auto;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .86rem;
+}
+
+.data-table thead tr {
+    background: #F2F2EF;
+}
+
+.data-table th {
+    padding: .85rem 1rem;
+    text-align: left;
+    font-weight: 700;
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+}
+
+.data-table td {
+    padding: .85rem 1rem;
+    border-bottom: 1px solid #F0F0EC;
+    vertical-align: middle;
+    color: var(--text);
+}
+
+.data-table tbody tr:hover { background: #FAFAF8; }
+.data-table tbody tr:last-child td { border-bottom: none; }
+
+.td-num {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1rem;
+    color: var(--muted);
+    text-align: center;
+}
+
+.course-code-badge {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: .95rem;
+    letter-spacing: 1px;
+    color: var(--red);
+    background: var(--red-light);
+    padding: .2rem .55rem;
+    border-radius: 5px;
+}
+
+.section-badge {
+    background: #EEF6FF;
+    color: #0066CC;
+    font-weight: 700;
+    font-size: .75rem;
+    padding: .2rem .6rem;
+    border-radius: 50px;
+    letter-spacing: .4px;
+}
+
+/* ── VIEW MODE CARD ── */
+.view-mode-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.8rem 2rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 1px 8px rgba(0,0,0,.06);
+}
+
+.radio-group {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1.6rem;
+}
+
+.radio-card {
+    cursor: pointer;
+    display: block;
+}
+
+.rb-hidden {
+    display: none;
+}
+
+.radio-card-inner {
+    display: flex;
+    align-items: flex-start;
+    gap: .9rem;
+    padding: 1rem 1.2rem;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    transition: border-color .2s, background .2s, box-shadow .2s;
+    background: var(--bg);
+}
+
+.radio-card:has(input:checked) .radio-card-inner {
+    border-color: var(--red);
+    background: var(--red-light);
+    box-shadow: 0 0 0 3px var(--red-glow);
+}
+
+.radio-icon {
+    font-size: 1.6rem;
+    flex-shrink: 0;
+    margin-top: .1rem;
+}
+
+.radio-title {
+    font-size: .88rem;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: .2rem;
+}
+
+.radio-desc {
+    font-size: .78rem;
+    color: var(--muted);
+    line-height: 1.4;
+}
+
+.btn-show {
+    display: block;
+    width: 100%;
+    padding: 1rem;
+    background: var(--red);
+    color: #FFFFFF;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.15rem;
+    letter-spacing: 3px;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background .2s, transform .15s, box-shadow .2s;
+}
+
+.btn-show:hover {
+    background: #A8001A;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(192,0,29,.3);
+}
+
+.btn-show:active { transform: translateY(0); }
+
+/* ── LEGEND ── */
+.legend-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .7rem;
+    margin-bottom: 1.2rem;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    font-size: .78rem;
+    font-weight: 600;
+    color: var(--text);
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 50px;
+    padding: .25rem .8rem;
+}
+
+.legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+/* ── TIMETABLE GRID ── */
+.timetable-scroll {
+    overflow-x: auto;
+    margin-bottom: 2rem;
+    border-radius: var(--radius);
+    box-shadow: 0 1px 8px rgba(0,0,0,.06);
+}
+
+.timetable-grid {
+    min-width: 680px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.tg-header-row,
+.tg-row {
+    display: grid;
+    grid-template-columns: 68px repeat(6, 1fr);
+    border-bottom: 1px solid var(--border);
+}
+
+.tg-row:last-child { border-bottom: none; }
+
+.tg-header-cell {
+    background: #F2F2EF;
+    font-size: .72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    color: var(--muted);
+}
+
+.tg-time-col {
+    padding: .6rem .5rem;
+    font-size: .72rem;
+    font-weight: 600;
+    color: var(--muted);
+    border-right: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #F8F8F5;
+}
+
+.tg-day-cell {
+    padding: .7rem .4rem;
+    text-align: center;
+    border-right: 1px solid var(--border);
+}
+
+.tg-day-cell:last-child { border-right: none; }
+
+.tg-cell {
+    border-right: 1px solid #F0F0EC;
+    min-height: 52px;
+    padding: 3px;
+    position: relative;
+}
+
+.tg-cell:last-child { border-right: none; }
+
+.tg-slot {
+    border-radius: 5px;
+    padding: .25rem .4rem;
+    border-left: 3px solid;
+    background: rgba(0,0,0,.07);
+    margin-bottom: 2px;
+    opacity: .88;
+}
+
+.tg-slot-code {
+    display: block;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: .75rem;
+    letter-spacing: .8px;
+    color: #FFFFFF;
+    line-height: 1.2;
+}
+
+.tg-slot-venue {
+    display: block;
+    font-size: .62rem;
+    color: rgba(255,255,255,.8);
+    line-height: 1.2;
+}
+
+/* ── SCHEDULE DETAIL LIST ── */
+.schedule-list {
+    display: flex;
+    flex-direction: column;
+    gap: .8rem;
+    margin-bottom: 2rem;
+}
+
+.schedule-item {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-left: 4px solid;
+    border-radius: 10px;
+    padding: 1rem 1.3rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    box-shadow: 0 1px 4px rgba(0,0,0,.04);
+    transition: transform .15s;
+}
+
+.schedule-item:hover {
+    transform: translateX(3px);
+}
+
+.sched-code {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.05rem;
+    letter-spacing: 1.5px;
+    margin-bottom: .2rem;
+}
+
+.sched-name {
+    font-size: .82rem;
+    color: var(--muted);
+    line-height: 1.4;
+}
+
+.sched-right {
+    display: flex;
+    gap: 1.2rem;
+    flex-wrap: wrap;
+}
+
+.sched-detail {
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+    font-size: .82rem;
+    color: var(--text);
+    font-weight: 500;
+}
+
+.sched-icon { font-size: .85rem; }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 700px) {
+    .radio-group { grid-template-columns: 1fr; }
+    .info-item-wide { grid-column: span 1; }
+    .info-grid { grid-template-columns: 1fr 1fr; }
+    .schedule-item { flex-direction: column; align-items: flex-start; }
+    .sched-right { gap: .8rem; }
+}
+
+@media (max-width: 480px) {
+    .info-grid { grid-template-columns: 1fr; }
+    .info-item-wide { grid-column: span 1; }
+}
