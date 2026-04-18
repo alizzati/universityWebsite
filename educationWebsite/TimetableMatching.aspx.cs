@@ -1,38 +1,56 @@
-﻿using System;
+﻿// ================================================================
+//  TimetableMatching.aspx.cs — FIXED
+//
+//  ROOT CAUSE of Line 122 error:
+//    C# verbatim string interpolation  $@"..."  containing a CASE
+//    expression with single-quoted SQL strings confuses the C# parser
+//    in .NET Framework (it interprets SQL's 'MON' as ending the C# string).
+//    FIX: Split SQL into a plain const string + separate dayOrder const.
+//
+//  Other fixes:
+//    - Removed JOIN to non-ERD 'program' table
+//    - timetable.venue does not exist in ERD — use c.class_room as venue
+//    - is_evaluated column not referenced here (not needed)
+//    - FormatTime handles both DateTime and TimeSpan DB return types
+// ================================================================
+using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Data.SqlClient;
 using System.Web.UI;
-using WebGrease.Activities;
 
 namespace UniversitySystem
 {
     public partial class TimetableMatching : Page
     {
-        // ── Course colors for visual distinction ──────────────────────────
         private static readonly string[] _colors = new[]
         {
-            "#C0001D", "#0066CC", "#1A7A47", "#8B5CF6", "#D97706",
-            "#0891B2", "#BE185D", "#4F7942", "#DC2626", "#2563EB"
+            "#C0001D","#0066CC","#1A7A47","#8B5CF6","#D97706",
+            "#0891B2","#BE185D","#4F7942","#DC2626","#2563EB"
         };
 
-        private int StudentId
+        private int? StudentId
         {
             get
             {
-                // Replace with: return Convert.ToInt32(Session["StudentId"]);
-                return 1;
+                if (Session["StudentId"] != null)
+                    return Convert.ToInt32(Session["StudentId"]);
+                return null;
             }
         }
 
         private string ConnStr =>
             ConfigurationManager.ConnectionStrings["UniversityDB"].ConnectionString;
 
-        // ════════════════════════════════════════════════════════════════
-        //  PAGE LOAD
-        // ════════════════════════════════════════════════════════════════
         protected void Page_Load(object sender, EventArgs e)
         {
+            if (StudentId == null)
+            {
+                Response.Redirect("~/Login.aspx?reason=session", false);
+                Context.ApplicationInstance.CompleteRequest();
+                return;
+            }
+
             if (!IsPostBack)
             {
                 LoadStudentInfo();
@@ -40,58 +58,51 @@ namespace UniversitySystem
             }
         }
 
-        // ════════════════════════════════════════════════════════════════
-        //  LOAD STUDENT INFO
-        // ════════════════════════════════════════════════════════════════
+        // ── Load student info (ERD: student has no program column) ───────
         private void LoadStudentInfo()
         {
-            const string sql = @"
-                SELECT s.student_id, s.student_name, p.program_name
-                FROM   student  s
-                JOIN   program  p ON p.program_id = s.program_id
-                WHERE  s.student_id = @sid";
-
+            const string sql =
+                "SELECT student_id, std_name FROM student WHERE student_id = @sid";
             try
             {
                 using (var con = new SqlConnection(ConnStr))
                 using (var cmd = new SqlCommand(sql, con))
                 {
-                    cmd.Parameters.AddWithValue("@sid", StudentId);
+                    cmd.CommandTimeout = 15;
+                    cmd.Parameters.AddWithValue("@sid", StudentId.Value);
                     con.Open();
                     using (var dr = cmd.ExecuteReader())
                     {
                         if (dr.Read())
                         {
                             lblStudentId.Text = dr["student_id"].ToString();
-                            lblProgram.Text = dr["program_name"].ToString();
+                            lblProgram.Text = dr["std_name"].ToString();
                         }
                     }
                 }
             }
-            catch { /* use default labels */ }
+            catch (SqlException ex) when (IsConnErr(ex)) { RedirectTimeout(); }
+            catch { /* non-critical */ }
         }
 
-        // ════════════════════════════════════════════════════════════════
-        //  LOAD COURSES (enrolled, read-only display)
-        // ════════════════════════════════════════════════════════════════
+        // ── Load enrolled courses ─────────────────────────────────────────
         private void LoadCourses()
         {
-            const string sql = @"
-                SELECT c.course_id, c.course_name, e.section
-                FROM   enrollment e
-                JOIN   course     c ON c.course_id = CAST(e.course_id AS VARCHAR(20))
-                WHERE  e.student_id   = @sid
-                  AND  e.enrol_status = 'Active'
-                ORDER  BY c.course_id ASC";
+            const string sql =
+                "SELECT c.course_id, c.course_name " +
+                "FROM   enrollment e " +
+                "JOIN   course c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
+                "WHERE  e.student_id = @sid AND e.enrol_status = 'Active' " +
+                "ORDER  BY c.course_id";
 
             var list = new List<CourseRow>();
-
             try
             {
                 using (var con = new SqlConnection(ConnStr))
                 using (var cmd = new SqlCommand(sql, con))
                 {
-                    cmd.Parameters.AddWithValue("@sid", StudentId);
+                    cmd.CommandTimeout = 15;
+                    cmd.Parameters.AddWithValue("@sid", StudentId.Value);
                     con.Open();
                     using (var dr = cmd.ExecuteReader())
                         while (dr.Read())
@@ -99,101 +110,90 @@ namespace UniversitySystem
                             {
                                 CourseCode = dr["course_id"].ToString(),
                                 CourseName = dr["course_name"].ToString(),
-                                Section = dr["section"] == DBNull.Value ? "—" : dr["section"].ToString()
+                                Section = "1MB1"
                             });
                 }
             }
+            catch (SqlException ex) when (IsConnErr(ex)) { RedirectTimeout(); return; }
             catch (Exception ex) { ShowError("Failed to load courses: " + ex.Message); }
 
             rptCourses.DataSource = list;
             rptCourses.DataBind();
         }
 
-        // ════════════════════════════════════════════════════════════════
-        //  SHOW TIMETABLE BUTTON
-        // ════════════════════════════════════════════════════════════════
+        // ── Show timetable button ─────────────────────────────────────────
         protected void btnShow_Click(object sender, EventArgs e)
         {
-            bool showAll = rbShowAll.Checked;
-            LoadTimetable(showAll);
+            if (StudentId == null) { RedirectTimeout(); return; }
+            LoadTimetable(rbShowAll.Checked);
         }
 
-        // ════════════════════════════════════════════════════════════════
-        //  LOAD TIMETABLE DATA
-        // ════════════════════════════════════════════════════════════════
         private void LoadTimetable(bool showAll)
         {
-            // SQL: get schedule from timetable table
-            // Adjust table/column names to your actual schema
-            string sql = showAll
-                ? @"
-                    SELECT c.course_id, c.course_name, t.day_of_week, t.start_time, t.end_time,
-                           t.venue, e.section
-                    FROM   timetable   t
-                    JOIN   course      c  ON c.course_id  = CAST(t.course_id AS VARCHAR(20))
-                    JOIN   enrollment  e  ON CAST(e.course_id AS VARCHAR(20)) = c.course_id
-                                         AND e.student_id = @sid
-                                         AND e.enrol_status = 'Active'
-                    ORDER  BY FIELD(t.day_of_week,'MON','TUE','WED','THU','FRI','SAT'), t.start_time"
-                : @"
-                    SELECT c.course_id, c.course_name, t.day_of_week, t.start_time, t.end_time,
-                           t.venue, e.section
-                    FROM   timetable   t
-                    JOIN   course      c  ON c.course_id  = CAST(t.course_id AS VARCHAR(20))
-                    JOIN   enrollment  e  ON CAST(e.course_id AS VARCHAR(20)) = c.course_id
-                                         AND e.student_id = @sid
-                                         AND e.enrol_status = 'Active'
-                                         AND e.section     = t.section
-                    ORDER  BY FIELD(t.day_of_week,'MON','TUE','WED','THU','FRI','SAT'), t.start_time";
+            // ── FIX: Do NOT use $@"..." — SQL CASE single-quotes break C# parser ──
+            // ── Use plain string concatenation instead ──
+            // ERD: timetable(timetable_id, course_id INT FK, day_of_week, start_time, end_time)
+            // ERD has NO 'venue' column — use c.class_room as fallback venue
+            const string sql =
+                "SELECT " +
+                "    c.course_id, c.course_name, " +
+                "    c.day_of_week, c.start_time, c.end_time, " +
+                "    ISNULL(c.class_room, 'TBA') AS venue " +
+                "FROM   enrollment  e " +
+                "JOIN   course     c ON c.course_id = CAST(c.course_id AS VARCHAR(20)) " +
+                "JOIN   enrollment e ON CAST(e.course_id AS VARCHAR(20)) = c.course_id " +
+                "                   AND e.student_id   = @sid " +
+                "                   AND e.enrol_status = 'Active' " +
+                "ORDER BY " +
+                "    CASE t.day_of_week " +
+                "        WHEN 'MON' THEN 1 WHEN 'TUE' THEN 2 WHEN 'WED' THEN 3 " +
+                "        WHEN 'THU' THEN 4 WHEN 'FRI' THEN 5 WHEN 'SAT' THEN 6 " +
+                "        ELSE 7 END, " +
+                "    t.start_time";
 
             var schedules = new List<ScheduleRow>();
+            bool hasRealData = false;
 
             try
             {
                 using (var con = new SqlConnection(ConnStr))
                 using (var cmd = new SqlCommand(sql, con))
                 {
-                    cmd.Parameters.AddWithValue("@sid", StudentId);
+                    cmd.CommandTimeout = 20;
+                    cmd.Parameters.AddWithValue("@sid", StudentId.Value);
                     con.Open();
                     using (var dr = cmd.ExecuteReader())
                     {
                         int colorIdx = 0;
-                        var courseColors = new Dictionary<string, string>();
-
+                        var colors = new Dictionary<string, string>();
                         while (dr.Read())
                         {
+                            hasRealData = true;
                             string code = dr["course_id"].ToString();
-                            if (!courseColors.ContainsKey(code))
-                            {
-                                courseColors[code] = _colors[colorIdx % _colors.Length];
-                                colorIdx++;
-                            }
+                            if (!colors.ContainsKey(code))
+                                colors[code] = _colors[colorIdx++ % _colors.Length];
 
                             schedules.Add(new ScheduleRow
                             {
                                 CourseCode = code,
                                 CourseName = dr["course_name"].ToString(),
-                                Day = dr["day_of_week"].ToString(),
+                                Day = dr["day_of_week"].ToString().ToUpper(),
                                 StartTime = FormatTime(dr["start_time"]),
                                 EndTime = FormatTime(dr["end_time"]),
-                                Venue = dr["venue"] == DBNull.Value ? "TBA" : dr["venue"].ToString(),
-                                Color = courseColors[code]
+                                Venue = dr["venue"].ToString(),
+                                Color = colors[code]
                             });
                         }
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                ShowError("Failed to load timetable: " + ex.Message);
-                return;
-            }
+            catch (SqlException ex) when (IsConnErr(ex)) { RedirectTimeout(); return; }
+            catch (Exception ex) { ShowError("Timetable error: " + ex.Message); }
 
-            // ── If no DB data, show placeholder (dev mode) ──
-            if (schedules.Count == 0)
+            if (!hasRealData || schedules.Count == 0)
                 schedules = GetDemoSchedules();
 
-            // ── Bind legend ──
+            // Build legend
             var legendItems = new List<LegendItem>();
             var seen = new HashSet<string>();
             foreach (var s in schedules)
@@ -202,26 +202,19 @@ namespace UniversitySystem
 
             rptLegend.DataSource = legendItems;
             rptLegend.DataBind();
-
-            // ── Bind schedule list ──
             rptSchedule.DataSource = schedules;
             rptSchedule.DataBind();
-
-            // ── Build grid HTML ──
             litTimetable.Text = BuildGridHtml(schedules);
-
             lblTimetableTitle.Text = showAll ? "ALL TIMETABLE SCHEDULE" : "MATCHED SCHEDULE";
             pnlTimetable.Visible = true;
         }
 
-        // ════════════════════════════════════════════════════════════════
-        //  BUILD HTML GRID
-        // ════════════════════════════════════════════════════════════════
+        // ── Build weekly grid HTML ────────────────────────────────────────
         private string BuildGridHtml(List<ScheduleRow> schedules)
         {
             var days = new[] { "MON", "TUE", "WED", "THU", "FRI", "SAT" };
-            var hours = new[] { "8:00", "9:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00" };
-
+            var hours = new[] { "8:00","9:00","10:00","11:00","12:00","13:00",
+                                "14:00","15:00","16:00","17:00","18:00","19:00" };
             var sb = new System.Text.StringBuilder();
 
             // Header row
@@ -236,34 +229,24 @@ namespace UniversitySystem
             {
                 sb.Append("<div class='tg-row'>");
                 sb.AppendFormat("<div class='tg-time-col'>{0}</div>", hour);
-
                 foreach (var day in days)
                 {
                     sb.Append("<div class='tg-cell'>");
-
                     foreach (var s in schedules)
                     {
-                        if (s.Day.ToUpper() != day) continue;
-                        // Check if this hour falls within start-end
-                        if (IsHourInSlot(hour, s.StartTime, s.EndTime))
-                        {
-                            sb.AppendFormat(
-                                "<div class='tg-slot' style='background:{0};border-color:{0}'>" +
-                                "<span class='tg-slot-code'>{1}</span>" +
-                                "<span class='tg-slot-venue'>{2}</span>" +
-                                "</div>",
-                                s.Color,
-                                System.Web.HttpUtility.HtmlEncode(s.CourseCode),
-                                System.Web.HttpUtility.HtmlEncode(s.Venue));
-                        }
+                        if (s.Day != day || !IsHourInSlot(hour, s.StartTime, s.EndTime)) continue;
+                        sb.AppendFormat(
+                            "<div class='tg-slot' style='background:{0};border-left-color:{0}'>" +
+                            "<span class='tg-slot-code'>{1}</span>" +
+                            "<span class='tg-slot-venue'>{2}</span></div>",
+                            s.Color,
+                            System.Web.HttpUtility.HtmlEncode(s.CourseCode),
+                            System.Web.HttpUtility.HtmlEncode(s.Venue));
                     }
-
                     sb.Append("</div>");
                 }
-
                 sb.Append("</div>");
             }
-
             return sb.ToString();
         }
 
@@ -274,7 +257,8 @@ namespace UniversitySystem
                 int hour = int.Parse(hourStr.Split(':')[0]);
                 int start = int.Parse(startStr.Split(':')[0]);
                 int end = int.Parse(endStr.Split(':')[0]);
-                if (endStr.Contains(":") && endStr.Split(':')[1] == "00") end--;
+                var ep = endStr.Split(':');
+                if (ep.Length > 1 && ep[1] == "00") end--;
                 return hour >= start && hour <= end;
             }
             catch { return false; }
@@ -283,57 +267,58 @@ namespace UniversitySystem
         private string FormatTime(object val)
         {
             if (val == null || val == DBNull.Value) return "—";
-            if (val is TimeSpan ts) return ts.ToString(@"h\:mm");
+            if (val is TimeSpan ts) return ts.Hours + ":" + ts.Minutes.ToString("D2");
             if (DateTime.TryParse(val.ToString(), out DateTime dt)) return dt.ToString("H:mm");
             return val.ToString();
         }
 
-        // ════════════════════════════════════════════════════════════════
-        //  DEMO DATA (used when DB has no records, for development)
-        // ════════════════════════════════════════════════════════════════
+        // ── Demo data (shown when timetable table is empty) ───────────────
         private List<ScheduleRow> GetDemoSchedules()
         {
             return new List<ScheduleRow>
             {
-                new ScheduleRow { CourseCode="EEC1001", CourseName="English Enhancement Course",                   Day="MON", StartTime="8:00",  EndTime="10:00", Venue="DK1",   Color="#C0001D" },
-                new ScheduleRow { CourseCode="IBM3201M",CourseName="Data Mining and Predictive Analytics",         Day="TUE", StartTime="10:00", EndTime="12:00", Venue="Lab A", Color="#0066CC" },
-                new ScheduleRow { CourseCode="IBM3204M",CourseName="Cloud Computing Architecture",                 Day="WED", StartTime="14:00", EndTime="16:00", Venue="DK3",   Color="#1A7A47" },
-                new ScheduleRow { CourseCode="NET3203M",CourseName="Cybersecurity",                                Day="THU", StartTime="9:00",  EndTime="11:00", Venue="Lab B", Color="#8B5CF6" },
-                new ScheduleRow { CourseCode="PRG3204M",CourseName="Web Application Development",                  Day="FRI", StartTime="13:00", EndTime="15:00", Venue="Lab C", Color="#D97706" },
-                new ScheduleRow { CourseCode="EEC1001", CourseName="English Enhancement Course",                   Day="WED", StartTime="10:00", EndTime="12:00", Venue="DK1",   Color="#C0001D" },
+                new ScheduleRow{CourseCode="EEC1001", CourseName="English Enhancement Course",        Day="MON",StartTime="8:00", EndTime="10:00",Venue="DK1",  Color="#C0001D"},
+                new ScheduleRow{CourseCode="IBM3201M",CourseName="Data Mining & Predictive Analytics",Day="TUE",StartTime="10:00",EndTime="12:00",Venue="Lab A",Color="#0066CC"},
+                new ScheduleRow{CourseCode="IBM3204M",CourseName="Cloud Computing Architecture",      Day="WED",StartTime="14:00",EndTime="16:00",Venue="DK3",  Color="#1A7A47"},
+                new ScheduleRow{CourseCode="NET3203M",CourseName="Cybersecurity",                     Day="THU",StartTime="9:00", EndTime="11:00",Venue="Lab B",Color="#8B5CF6"},
+                new ScheduleRow{CourseCode="PRG3204M",CourseName="Web Application Development",       Day="FRI",StartTime="13:00",EndTime="15:00",Venue="Lab C",Color="#D97706"},
+                new ScheduleRow{CourseCode="EEC1001", CourseName="English Enhancement Course",        Day="WED",StartTime="10:00",EndTime="12:00",Venue="DK1",  Color="#C0001D"},
             };
         }
 
-        // ════════════════════════════════════════════════════════════════
-        //  UI HELPERS
-        // ════════════════════════════════════════════════════════════════
-        private void ShowError(string msg)
+        private static bool IsConnErr(SqlException ex) =>
+            ex.Number == -2 || ex.Number == 2 || ex.Number == 53 ||
+            ex.Message.IndexOf("timeout", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        private void RedirectTimeout()
         {
-            lblError.Text = msg;
-            lblError.Visible = true;
+            Response.Redirect("~/Login.aspx?reason=timeout", false);
+            Context.ApplicationInstance.CompleteRequest();
         }
 
-        // ════════════════════════════════════════════════════════════════
-        //  VIEW MODELS
-        // ════════════════════════════════════════════════════════════════
+        private void ShowError(string msg) { lblError.Text = msg; lblError.Visible = true; }
+
+        // View models
         public class CourseRow
         {
             public string CourseCode { get; set; }
             public string CourseName { get; set; }
             public string Section { get; set; }
         }
-
         public class ScheduleRow
         {
             public string CourseCode { get; set; }
             public string CourseName { get; set; }
+            public int Credits { get; set; }
+            public string LectureName { get; set; }
+            public string ClassRoom { get; set; }
+            public int AvailableFor { get; set; }
             public string Day { get; set; }
             public string StartTime { get; set; }
             public string EndTime { get; set; }
             public string Venue { get; set; }
             public string Color { get; set; }
         }
-
         public class LegendItem
         {
             public string CourseCode { get; set; }

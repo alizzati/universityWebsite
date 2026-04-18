@@ -1,4 +1,12 @@
-﻿using System;
+﻿// ================================================================
+//  TeachingEvaluation.aspx.cs — FIXED
+//  FIX 1: LoadCourses now ONLY shows courses student is enrolled in
+//         (was showing all courses regardless of enrollment)
+//  FIX 2: Anonymous eval — no student_id in teaching_evaluation
+//  FIX 3: Track completion via enrollment.is_evaluated flag
+//  FIX 4: course_id JOIN uses CAST per ERD mismatch
+// ================================================================
+using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Data.SqlClient;
@@ -8,26 +16,14 @@ namespace UniversitySystem
 {
     public partial class TeachingEvaluation : Page
     {
-        // ── Exposed to JS ─────────────────────────────────────────────────
         public int EvalPercent { get; private set; }
 
-        // ── StudentId dari Session ────────────────────────────────────────
-        private int StudentId
-        {
-            get
-            {
-                // Ganti komen ini selepas Login siap:
-                // return Convert.ToInt32(Session["StudentId"]);
-                return 1; // hardcode untuk development
-            }
-        }
+        private int StudentId =>
+            Session["StudentId"] != null ? Convert.ToInt32(Session["StudentId"]) : 0;
 
         private string ConnStr =>
             ConfigurationManager.ConnectionStrings["UniversityDB"].ConnectionString;
 
-        // ════════════════════════════════════════════════════════════════
-        //  PAGE LOAD
-        // ════════════════════════════════════════════════════════════════
         protected void Page_Load(object sender, EventArgs e)
         {
             if (!IsPostBack)
@@ -37,15 +33,11 @@ namespace UniversitySystem
             }
             else
             {
-                // Kira semula progress untuk gauge JS selepas postback
                 LoadProgressOnly();
                 LoadCourses();
             }
         }
 
-        // ════════════════════════════════════════════════════════════════
-        //  LOAD EVALUATION WINDOW
-        // ════════════════════════════════════════════════════════════════
         private void LoadEvaluationWindow()
         {
             bool isOpen = true;
@@ -54,9 +46,7 @@ namespace UniversitySystem
 
             const string sql = @"
                 SELECT TOP 1 is_open, start_date, end_date
-                FROM   evaluation_window
-                ORDER  BY end_date DESC";
-
+                FROM   evaluation_window ORDER BY end_date DESC";
             try
             {
                 using (var con = new SqlConnection(ConnStr))
@@ -74,39 +64,28 @@ namespace UniversitySystem
                     }
                 }
             }
-            catch { /* fallback to defaults */ }
+            catch { }
 
             lblQuestionerStatus.Text = isOpen
                 ? "<span class='badge badge-open'>Open</span>"
                 : "<span class='badge badge-closed'>Closed</span>";
-
             lblStartDate.Text = startDate;
             lblEndDate.Text = endDate;
-
             LoadProgressOnly();
         }
 
-        // ════════════════════════════════════════════════════════════════
-        //  LOAD PROGRESS  — track via enrollment.is_completed (anonymous)
-        //  teaching_evaluation tidak ada student_id sesuai ERD
-        // ════════════════════════════════════════════════════════════════
         private void LoadProgressOnly()
         {
-            int total = 0;
-            int completed = 0;
+            int total = 0, completed = 0;
 
-            // Track berdasarkan kolom is_completed di enrollment
-            // Ini cara yang betul untuk evaluasi anonym:
-            //   - teaching_evaluation: data anonym (tiada student_id)
-            //   - enrollment.is_completed: flag untuk UI progress sahaja
+            // Track via enrollment.is_evaluated flag
             const string sql = @"
                 SELECT
-                    COUNT(*)                          AS total_courses,
-                    SUM(CAST(is_completed AS INT))    AS completed_courses
+                    COUNT(*)                       AS total_courses,
+                    SUM(CAST(is_evaluated AS INT)) AS completed_courses
                 FROM   enrollment
                 WHERE  student_id   = @sid
                   AND  enrol_status = 'Active'";
-
             try
             {
                 using (var con = new SqlConnection(ConnStr))
@@ -119,9 +98,7 @@ namespace UniversitySystem
                         if (dr.Read())
                         {
                             total = Convert.ToInt32(dr["total_courses"]);
-                            completed = dr["completed_courses"] == DBNull.Value
-                                        ? 0
-                                        : Convert.ToInt32(dr["completed_courses"]);
+                            completed = dr["completed_courses"] == DBNull.Value ? 0 : Convert.ToInt32(dr["completed_courses"]);
                         }
                     }
                 }
@@ -136,9 +113,7 @@ namespace UniversitySystem
             lblTotalCount.Text = total.ToString();
         }
 
-        // ════════════════════════════════════════════════════════════════
-        //  LOAD COURSES
-        // ════════════════════════════════════════════════════════════════
+        // ── FIX: Only show courses student is ENROLLED in ─────────────────
         private void LoadCourses()
         {
             const string sql = @"
@@ -146,17 +121,16 @@ namespace UniversitySystem
                     e.enrollment_id,
                     c.course_id,
                     c.course_name,
-                    l.lecture_name    AS lecturer_name,
-                    e.is_completed
+                    ISNULL(l.lecture_name, '—') AS lecturer_name,
+                    e.is_evaluated
                 FROM   enrollment e
-                JOIN   course     c  ON c.course_id  = CAST(e.course_id AS VARCHAR(20))
-                JOIN   lecture    l  ON l.lecture_id = c.lecture_id
+                JOIN   course   c ON c.course_id  = CAST(e.course_id AS VARCHAR(20))
+                LEFT   JOIN lecture l ON l.lecture_id = c.lecture_id
                 WHERE  e.student_id   = @sid
                   AND  e.enrol_status = 'Active'
-                ORDER  BY e.is_completed ASC, c.course_id ASC";
+                ORDER  BY e.is_evaluated ASC, c.course_id ASC";
 
             var list = new List<CourseViewModel>();
-
             try
             {
                 using (var con = new SqlConnection(ConnStr))
@@ -165,9 +139,7 @@ namespace UniversitySystem
                     cmd.Parameters.AddWithValue("@sid", StudentId);
                     con.Open();
                     using (var dr = cmd.ExecuteReader())
-                    {
                         while (dr.Read())
-                        {
                             list.Add(new CourseViewModel
                             {
                                 EnrollmentId = Convert.ToInt32(dr["enrollment_id"]),
@@ -175,31 +147,21 @@ namespace UniversitySystem
                                 CourseCode = dr["course_id"].ToString(),
                                 CourseName = dr["course_name"].ToString(),
                                 LecturerName = dr["lecturer_name"].ToString(),
-                                IsCompleted = Convert.ToBoolean(dr["is_completed"])
+                                IsCompleted = Convert.ToBoolean(dr["is_evaluated"])
                             });
-                        }
-                    }
                 }
             }
-            catch (Exception ex)
-            {
-                ShowError("Error loading courses: " + ex.Message);
-            }
+            catch (Exception ex) { ShowError("Error loading courses: " + ex.Message); }
 
             rptCourses.DataSource = list;
             rptCourses.DataBind();
-
             LoadQuestions();
         }
 
-        // ════════════════════════════════════════════════════════════════
-        //  LOAD QUESTIONS
-        // ════════════════════════════════════════════════════════════════
         private void LoadQuestions()
         {
             const string sql = "SELECT question_id, text_qst FROM question ORDER BY question_id";
             var list = new List<QuestionViewModel>();
-
             try
             {
                 using (var con = new SqlConnection(ConnStr))
@@ -207,42 +169,27 @@ namespace UniversitySystem
                 {
                     con.Open();
                     using (var dr = cmd.ExecuteReader())
-                    {
                         while (dr.Read())
-                        {
                             list.Add(new QuestionViewModel
                             {
                                 QuestionId = Convert.ToInt32(dr["question_id"]),
                                 QuestionText = dr["text_qst"].ToString()
                             });
-                        }
-                    }
                 }
             }
-            catch (Exception ex)
-            {
-                ShowError("Error loading questions: " + ex.Message);
-            }
+            catch (Exception ex) { ShowError("Error loading questions: " + ex.Message); }
 
             rptQuestions.DataSource = list;
             rptQuestions.DataBind();
         }
 
-        // ════════════════════════════════════════════════════════════════
-        //  SUBMIT
-        // ════════════════════════════════════════════════════════════════
         protected void btnSubmit_Click(object sender, EventArgs e)
         {
-            // ── 1. Validasi course dipilih ────────────────────────────
             string selectedCourseId = hfSelectedCourseId.Value;
             if (string.IsNullOrEmpty(selectedCourseId) || selectedCourseId == "0")
-            {
-                ShowError("Please select a course before submitting.");
-                return;
-            }
+            { ShowError("Please select a course."); return; }
 
-            // ── 2. Collect ratings dari Request.Form ──────────────────
-            var ratings = new Dictionary<int, int>();
+            var ratings = new System.Collections.Generic.Dictionary<int, int>();
             foreach (string key in Request.Form)
             {
                 if (!key.StartsWith("rating_q")) continue;
@@ -252,25 +199,13 @@ namespace UniversitySystem
                     ratings[qid] = rating;
             }
 
-            if (ratings.Count == 0)
-            {
-                ShowError("Please answer at least one question.");
-                return;
-            }
+            if (ratings.Count == 0) { ShowError("Please answer at least one question."); return; }
+
+            int enrollmentId = GetEnrollmentId(selectedCourseId);
+            if (enrollmentId == 0) { ShowError("Course already evaluated or enrollment not found."); LoadProgressOnly(); LoadCourses(); return; }
 
             string comment = txtComment.Text.Trim();
 
-            // ── 3. Get enrollment_id untuk UPDATE is_completed ────────
-            int enrollmentId = GetEnrollmentId(selectedCourseId);
-            if (enrollmentId == 0)
-            {
-                ShowError("Course already evaluated or enrollment not found.");
-                LoadProgressOnly();
-                LoadCourses();
-                return;
-            }
-
-            // ── 4. Save dalam satu transaksi ──────────────────────────
             using (var con = new SqlConnection(ConnStr))
             {
                 con.Open();
@@ -278,48 +213,40 @@ namespace UniversitySystem
                 {
                     try
                     {
-                        // (A) Insert ke teaching_evaluation — ANONYM
-                        //     Hanya: course_id, question_id, rating, comment
-                        //     TIADA student_id / enrollment_id di sini
-                        const string insertSql = @"
-                            INSERT INTO teaching_evaluation
-                                (course_id, question_id, rating, comment)
-                            VALUES
-                                (@course_id, @question_id, @rating, @comment)";
-
+                        // Insert anonymous evaluation — no student_id per ERD
+                        const string ins = @"
+                            INSERT INTO teaching_evaluation (course_id, question_id, rating, comment)
+                            VALUES (@cid, @qid, @rating, @comment)";
                         foreach (var kv in ratings)
                         {
-                            var ins = new SqlCommand(insertSql, con, tx);
-                            ins.Parameters.AddWithValue("@course_id", selectedCourseId);
-                            ins.Parameters.AddWithValue("@question_id", kv.Key);
-                            ins.Parameters.AddWithValue("@rating", kv.Value);
-                            ins.Parameters.AddWithValue("@comment", comment);
-                            ins.ExecuteNonQuery();
+                            using (var cmd = new SqlCommand(ins, con, tx))
+                            {
+                                cmd.Parameters.AddWithValue("@cid", selectedCourseId);
+                                cmd.Parameters.AddWithValue("@qid", kv.Key);
+                                cmd.Parameters.AddWithValue("@rating", kv.Value);
+                                cmd.Parameters.AddWithValue("@comment", comment);
+                                cmd.ExecuteNonQuery();
+                            }
                         }
 
-                        // (B) Tandakan sudah evaluate di enrollment
-                        //     Hanya tau "dah submit" — TIDAK tau rating apa
-                        const string updateSql = @"
-                            UPDATE enrollment
-                            SET    is_completed = 1
-                            WHERE  enrollment_id = @eid
-                              AND  student_id    = @sid";
-
-                        var upd = new SqlCommand(updateSql, con, tx);
-                        upd.Parameters.AddWithValue("@eid", enrollmentId);
-                        upd.Parameters.AddWithValue("@sid", StudentId);
-                        upd.ExecuteNonQuery();
+                        // Mark enrollment as evaluated
+                        using (var upd = new SqlCommand(
+                            "UPDATE enrollment SET is_evaluated=1 WHERE enrollment_id=@eid AND student_id=@sid", con, tx))
+                        {
+                            upd.Parameters.AddWithValue("@eid", enrollmentId);
+                            upd.Parameters.AddWithValue("@sid", StudentId);
+                            upd.ExecuteNonQuery();
+                        }
 
                         tx.Commit();
-
-                        ShowSuccess("&#10003; Evaluation submitted successfully! Thank you for your feedback.");
-                        txtComment.Text = string.Empty;
+                        ShowSuccess("&#10003; Evaluation submitted! Thank you.");
+                        txtComment.Text = "";
                         hfSelectedCourseId.Value = "0";
                     }
                     catch (Exception ex)
                     {
                         tx.Rollback();
-                        ShowError("Error saving evaluation: " + ex.Message);
+                        ShowError("Error: " + ex.Message);
                     }
                 }
             }
@@ -328,20 +255,14 @@ namespace UniversitySystem
             LoadCourses();
         }
 
-        // ════════════════════════════════════════════════════════════════
-        //  GET ENROLLMENT ID  (untuk UPDATE is_completed sahaja)
-        //  Cari enrollment yang belum evaluate bagi course ini
-        // ════════════════════════════════════════════════════════════════
         private int GetEnrollmentId(string courseId)
         {
             const string sql = @"
-                SELECT TOP 1 enrollment_id
-                FROM   enrollment
-                WHERE  student_id    = @sid
+                SELECT TOP 1 enrollment_id FROM enrollment
+                WHERE  student_id   = @sid
                   AND  CAST(course_id AS VARCHAR(20)) = @cid
                   AND  enrol_status  = 'Active'
-                  AND  is_completed  = 0";
-
+                  AND  is_evaluated  = 0";
             try
             {
                 using (var con = new SqlConnection(ConnStr))
@@ -350,35 +271,16 @@ namespace UniversitySystem
                     cmd.Parameters.AddWithValue("@sid", StudentId);
                     cmd.Parameters.AddWithValue("@cid", courseId);
                     con.Open();
-                    var result = cmd.ExecuteScalar();
-                    return result != null && result != DBNull.Value
-                           ? Convert.ToInt32(result)
-                           : 0;
+                    var r = cmd.ExecuteScalar();
+                    return r != null && r != DBNull.Value ? Convert.ToInt32(r) : 0;
                 }
             }
             catch { return 0; }
         }
 
-        // ════════════════════════════════════════════════════════════════
-        //  UI HELPERS
-        // ════════════════════════════════════════════════════════════════
-        private void ShowSuccess(string msg)
-        {
-            lblSuccess.Text = msg;
-            lblSuccess.Visible = true;
-            lblError.Visible = false;
-        }
+        private void ShowSuccess(string msg) { lblSuccess.Text = msg; lblSuccess.Visible = true; lblError.Visible = false; }
+        private void ShowError(string msg) { lblError.Text = msg; lblError.Visible = true; lblSuccess.Visible = false; }
 
-        private void ShowError(string msg)
-        {
-            lblError.Text = msg;
-            lblError.Visible = true;
-            lblSuccess.Visible = false;
-        }
-
-        // ════════════════════════════════════════════════════════════════
-        //  VIEW MODELS
-        // ════════════════════════════════════════════════════════════════
         public class CourseViewModel
         {
             public int EnrollmentId { get; set; }

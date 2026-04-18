@@ -15,7 +15,7 @@
                 Enrollment <svg class="nav-chevron" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
             </a>
             <ul class="dropdown">
-                <li><a href="/Enrollment.aspx" class='<%=ActiveClass("Enrollment") %>'>&#127979; Course Enrolment</a></li>
+                <li><a href="/OnlineEnrollment.aspx" class='<%=ActiveClass("Enrollment") %>'>&#127979; Course Enrolment</a></li>
             </ul>
         </li>
 
@@ -61,7 +61,7 @@
             <ul class="dropdown">
                 <li><a href="/Payment.aspx"            class='<%=ActiveClass("Payment") %>'>&#128181; Payment</a></li>
                 <li><a href="/PaymentHistory.aspx"     class='<%=ActiveClass("PaymentHistory") %>'>&#128200; Online Payment History / Receipt</a></li>
-                <li><a href="/Invoice.aspx"            class='<%=ActiveClass("Invoice") %>'>&#129534; Invoice and Adjustment Note</a></li>
+                <li><a href="/InvoicePayment.aspx"     class='<%=ActiveClass("Invoice") %>'>&#129534; Invoice and Adjustment Note</a></li>
             </ul>
         </li>
 
