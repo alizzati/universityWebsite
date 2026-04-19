@@ -19,7 +19,7 @@
         .back-btn:hover{color:#FFF;}
         .page-header h1{font-family:'Bebas Neue',sans-serif;font-size:2.6rem;letter-spacing:3px;color:#FFF;line-height:1;}
         .page-header p{margin-top:.5rem;color:rgba(255,255,255,.75);font-size:.9rem;}
-        .main{max-width:960px;margin:0 auto;padding:2.5rem 1.5rem 5rem;}
+        .main{max-width:980px;margin:0 auto;padding:2.5rem 1.5rem 5rem;}
         .alert-block{border-radius:8px;padding:.8rem 1rem;font-size:.85rem;margin-bottom:1.4rem;display:block;}
         .alert-success{background:#F0FFF7;border:1px solid #B7EBD0;color:#1A7A47;}
         .table-wrap{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:0 1px 8px rgba(0,0,0,.06);overflow-x:auto;}
@@ -30,8 +30,8 @@
         .data-table tbody tr:hover{background:#FAFAF8;}
         .data-table tbody tr:last-child td{border-bottom:none;}
         .inv{font-family:'Bebas Neue',sans-serif;font-size:.95rem;letter-spacing:1px;color:var(--red);}
-        .ccode{font-weight:700;}
-        .csub{font-size:.75rem;color:var(--muted);}
+        .courses-cell{font-size:.82rem;color:var(--text);max-width:260px;line-height:1.5;}
+        .courses-cell .c-item{display:inline-block;background:#F0F0F8;border-radius:4px;padding:.1rem .4rem;margin:.1rem .2rem .1rem 0;font-size:.75rem;}
         .badge{display:inline-block;padding:.25rem .75rem;border-radius:50px;font-size:.72rem;font-weight:700;letter-spacing:.4px;text-transform:uppercase;}
         .badge-success{background:#F0FFF7;color:#1A7A47;border:1px solid #B7EBD0;}
         .badge-pending{background:#FFFBF0;color:#7A6000;border:1px solid #F0E0A0;}
@@ -85,10 +85,10 @@
                         <thead>
                             <tr>
                                 <th>Invoice No</th>
-                                <th>Date</th>
-                                <th>Course</th>
+                                <th>Date &amp; Time</th>
+                                <th>Courses</th>
                                 <th>Bank</th>
-                                <th style="text-align:right">Amount</th>
+                                <th style="text-align:right">Total Amount</th>
                                 <th style="text-align:center">Status</th>
                                 <th style="text-align:center">Invoice</th>
                             </tr>
@@ -97,20 +97,18 @@
                 </HeaderTemplate>
                 <ItemTemplate>
                     <tr>
-                        <td><span class="inv">INV-<%# Eval("payment_id","{0:0000}") %></span></td>
-                        <td><%# Eval("created_at","{0:dd MMM yyyy}") %></td>
-                        <td>
-                            <span class="ccode"><%# Eval("course_id") %></span><br/>
-                            <span class="csub"><%# Eval("course_name") %></span>
+                        <td><span class="inv">INV-<%# Eval("batch_id","{0:0000}") %></span></td>
+                        <td><%# Eval("created_at","{0:dd MMM yyyy HH:mm}") %></td>
+                        <td class="courses-cell">
+                            <%# FormatCoursesList(Eval("courses_list")) %>
                         </td>
                         <td><%# Eval("bank_name") %></td>
-                        <td class="amt">RM <%# Eval("amount","{0:N0}") %></td>
+                        <td class="amt">RM <%# Eval("total_amount","{0:N2}") %></td>
                         <td style="text-align:center">
                             <span class='badge <%# GetBadgeClass(Eval("status").ToString()) %>'><%# Eval("status") %></span>
                         </td>
                         <td style="text-align:center">
-                            <%-- Invoice link for each payment row --%>
-                            <a href='<%# "invoicepayment.aspx?pid=" + Eval("payment_id") %>' class="btn-inv">&#128196; VIEW</a>
+                            <a href='<%# "InvoicePayment.aspx?pid=" + Eval("batch_id") %>' class="btn-inv">&#128196; VIEW</a>
                         </td>
                     </tr>
                 </ItemTemplate>

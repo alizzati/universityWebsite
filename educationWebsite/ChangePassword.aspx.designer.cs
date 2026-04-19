@@ -60,13 +60,13 @@ namespace UniversitySystem
         protected global::System.Web.UI.WebControls.Panel pnlForm;
 
         /// <summary>
-        /// txtCurrentPassword control.
+        /// txtCurrent control.
         /// </summary>
         /// <remarks>
         /// Auto-generated field.
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
-        protected global::System.Web.UI.WebControls.TextBox txtCurrentPassword;
+        protected global::System.Web.UI.WebControls.TextBox txtCurrent;
 
         /// <summary>
         /// rfvCurrent control.
@@ -78,13 +78,13 @@ namespace UniversitySystem
         protected global::System.Web.UI.WebControls.RequiredFieldValidator rfvCurrent;
 
         /// <summary>
-        /// txtNewPassword control.
+        /// txtNew control.
         /// </summary>
         /// <remarks>
         /// Auto-generated field.
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
-        protected global::System.Web.UI.WebControls.TextBox txtNewPassword;
+        protected global::System.Web.UI.WebControls.TextBox txtNew;
 
         /// <summary>
         /// rfvNew control.
@@ -96,22 +96,22 @@ namespace UniversitySystem
         protected global::System.Web.UI.WebControls.RequiredFieldValidator rfvNew;
 
         /// <summary>
-        /// revPassword control.
+        /// revNew control.
         /// </summary>
         /// <remarks>
         /// Auto-generated field.
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
-        protected global::System.Web.UI.WebControls.RegularExpressionValidator revPassword;
+        protected global::System.Web.UI.WebControls.RegularExpressionValidator revNew;
 
         /// <summary>
-        /// txtConfirmPassword control.
+        /// txtConfirm control.
         /// </summary>
         /// <remarks>
         /// Auto-generated field.
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
-        protected global::System.Web.UI.WebControls.TextBox txtConfirmPassword;
+        protected global::System.Web.UI.WebControls.TextBox txtConfirm;
 
         /// <summary>
         /// rfvConfirm control.
@@ -123,22 +123,22 @@ namespace UniversitySystem
         protected global::System.Web.UI.WebControls.RequiredFieldValidator rfvConfirm;
 
         /// <summary>
-        /// cvPassword control.
+        /// cvConfirm control.
         /// </summary>
         /// <remarks>
         /// Auto-generated field.
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
-        protected global::System.Web.UI.WebControls.CompareValidator cvPassword;
+        protected global::System.Web.UI.WebControls.CompareValidator cvConfirm;
 
         /// <summary>
-        /// btnChangePassword control.
+        /// btnChange control.
         /// </summary>
         /// <remarks>
         /// Auto-generated field.
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
-        protected global::System.Web.UI.WebControls.Button btnChangePassword;
+        protected global::System.Web.UI.WebControls.Button btnChange;
 
         /// <summary>
         /// pnlSuccess control.

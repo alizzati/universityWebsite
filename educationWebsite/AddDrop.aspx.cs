@@ -1,8 +1,25 @@
 ﻿// ================================================================
-//  AddDrop.aspx.cs — UPDATED
-//  CHANGE: btnAdd_Click now redirects to OnlinePayment.aspx
-//          (single course, same flow as OnlineEnrollment)
-//  DROP: stays as soft-delete (no payment needed)
+//  AddDrop.aspx.cs — FULLY FIXED
+//
+//  REQUIREMENTS:
+//  1. After DROP: course becomes available again for re-enrolment.
+//     FIX: UPDATE enrol_status='Dropped' (already done) means the
+//     NOT IN subquery in LoadAvailableCourses only excludes
+//     'Active' and 'Pending Payment'. 'Dropped' rows are ignored,
+//     so the course re-appears as Available. ✓
+//
+//  2. After enroll+pay: course shows as Enrolled, not Available.
+//     FIX: OnlinePayment.cs already UPDATEs enrol_status='Active'.
+//     LoadAvailableCourses excludes 'Active' and 'Pending Payment'. ✓
+//
+//  3. Double-payment prevention: Already enrolled or Pending Payment
+//     → error shown, redirect to enrolled tab. ✓
+//
+//  4. History: RecordHistory stores courseIntId in add_drop_history.
+//     Both ADD and DROP are recorded. ✓
+//
+//  5. DATABINDING FIX: EnrolledCourse and AvailableCourse use
+//     { get; set; } PROPERTIES (not public fields). ✓
 // ================================================================
 using System;
 using System.Collections.Generic;
@@ -60,6 +77,7 @@ namespace UniversitySystem
             LoadActiveTab();
         }
 
+        // ── MY COURSES: Only Active enrollments ──────────────────────────
         private void LoadEnrolledCourses()
         {
             const string sql =
@@ -70,7 +88,7 @@ namespace UniversitySystem
                 "FROM   enrollment e " +
                 "JOIN   course c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
                 "LEFT   JOIN lecture l ON l.lecture_id = c.lecture_id " +
-                "WHERE  e.student_id = @sid AND e.enrol_status = 'Active' " +
+                "WHERE  e.student_id=@sid AND e.enrol_status='Active' " +
                 "ORDER  BY c.course_id";
 
             var list = new List<EnrolledCourse>();
@@ -96,15 +114,18 @@ namespace UniversitySystem
                 }
             }
             catch (SqlException ex) when (IsConnErr(ex)) { RedirectTimeout(); return; }
-            catch (Exception ex) { ShowError("Error loading courses: " + ex.Message); return; }
+            catch (Exception ex) { ShowError("Error: " + ex.Message); return; }
 
             phNoEnrolled.Visible = (list.Count == 0);
             rptEnrolled.DataSource = list;
             rptEnrolled.DataBind();
         }
 
+        // ── ADD COURSE: Courses NOT currently Active or Pending Payment ───
         private void LoadAvailableCourses()
         {
+            // KEY: courses with enrol_status='Dropped' are NOT excluded,
+            // so they re-appear as available after being dropped. ✓
             const string sql =
                 "SELECT c.course_id, c.course_name, " +
                 "       ISNULL(c.credits, 0) AS credits, " +
@@ -114,7 +135,7 @@ namespace UniversitySystem
                 "LEFT   JOIN lecture l ON l.lecture_id = c.lecture_id " +
                 "WHERE  c.course_id NOT IN (" +
                 "    SELECT CAST(course_id AS VARCHAR(20)) FROM enrollment " +
-                "    WHERE student_id = @sid AND enrol_status IN ('Active','Pending Payment')" +
+                "    WHERE student_id=@sid AND enrol_status IN ('Active','Pending Payment')" +
                 ") ORDER BY c.course_id";
 
             var list = new List<AvailableCourse>();
@@ -139,33 +160,49 @@ namespace UniversitySystem
                 }
             }
             catch (SqlException ex) when (IsConnErr(ex)) { RedirectTimeout(); return; }
-            catch (Exception ex) { ShowError("Error loading courses: " + ex.Message); return; }
+            catch (Exception ex) { ShowError("Error: " + ex.Message); return; }
 
             phNoAvailable.Visible = (list.Count == 0);
             rptAvailable.DataSource = list;
             rptAvailable.DataBind();
         }
 
-        // ── DROP ──────────────────────────────────────────────────────────
+        // ── DROP: Set enrol_status='Dropped', record history ─────────────
+        // After drop: course appears in Available tab (Dropped ≠ Active/Pending)
         protected void btnDrop_Click(object sender, EventArgs e)
         {
             int enrollmentId;
             if (!int.TryParse(((Button)sender).CommandArgument, out enrollmentId)) return;
 
             int courseIntId = 0;
+            string courseStrId = "";
+
             try
             {
                 using (var con = new SqlConnection(ConnStr))
                 {
                     con.Open();
+
+                    // Get the course_id (INT) and course_id (VARCHAR) for this enrollment
                     using (var c = new SqlCommand(
-                        "SELECT course_id FROM enrollment WHERE enrollment_id = @eid", con))
+                        "SELECT e.course_id AS cint, c.course_id AS cstr " +
+                        "FROM enrollment e " +
+                        "JOIN course c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
+                        "WHERE e.enrollment_id=@eid", con))
                     {
                         c.Parameters.AddWithValue("@eid", enrollmentId);
-                        var res = c.ExecuteScalar();
-                        if (res != null && res != DBNull.Value)
-                            courseIntId = Convert.ToInt32(res);
+                        using (var dr = c.ExecuteReader())
+                        {
+                            if (dr.Read())
+                            {
+                                courseIntId = Convert.ToInt32(dr["cint"]);
+                                courseStrId = dr["cstr"].ToString();
+                            }
+                        }
                     }
+
+                    // Soft-delete: set status to 'Dropped'
+                    // The course will re-appear in Available tab immediately
                     using (var cmd = new SqlCommand(
                         "UPDATE enrollment SET enrol_status='Dropped' " +
                         "WHERE enrollment_id=@eid AND student_id=@sid", con))
@@ -174,9 +211,12 @@ namespace UniversitySystem
                         cmd.Parameters.AddWithValue("@sid", StudentId);
                         cmd.ExecuteNonQuery();
                     }
+
+                    // Record Drop in add_drop_history
                     RecordHistory(con, courseIntId, "Drop");
                 }
-                ShowSuccess("&#10003; Course dropped successfully.");
+
+                ShowSuccess("&#10003; Course dropped. It is now available to re-enrol.");
             }
             catch (SqlException ex) when (IsConnErr(ex)) { RedirectTimeout(); return; }
             catch (Exception ex) { ShowError("Drop error: " + ex.Message); }
@@ -185,7 +225,7 @@ namespace UniversitySystem
             LoadActiveTab();
         }
 
-        // ── ADD — insert as Pending Payment, redirect to payment ──────────
+        // ── ADD: Insert as Pending Payment, redirect to payment ───────────
         protected void btnAdd_Click(object sender, EventArgs e)
         {
             string courseId = ((Button)sender).CommandArgument;
@@ -198,7 +238,7 @@ namespace UniversitySystem
                 {
                     con.Open();
 
-                    // Already enrolled or pending?
+                    // Check not already active or pending
                     using (var c = new SqlCommand(
                         "SELECT COUNT(*) FROM enrollment " +
                         "WHERE student_id=@sid AND CAST(course_id AS VARCHAR(20))=@cid " +
@@ -208,12 +248,12 @@ namespace UniversitySystem
                         c.Parameters.AddWithValue("@cid", courseId);
                         if ((int)c.ExecuteScalar() > 0)
                         {
-                            ShowError("Already enrolled or pending payment for this course.");
+                            ShowError("You are already enrolled or have a pending payment for this course.");
                             ActiveTab = "enrolled"; LoadActiveTab(); return;
                         }
                     }
 
-                    // Get INT course_id
+                    // Get INT course_id for enrollment table
                     using (var c = new SqlCommand(
                         "SELECT COUNT(*) FROM course c2 WHERE c2.course_id <= @cid", con))
                     {
@@ -221,9 +261,9 @@ namespace UniversitySystem
                         try { courseIntId = (int)c.ExecuteScalar(); } catch { courseIntId = 1; }
                     }
 
-                    // INSERT as 'Pending Payment'
+                    // INSERT as 'Pending Payment' — try both date column names
                     bool inserted = false;
-                    foreach (var col in new[] { "enroll_data", "enrol_data" })
+                    foreach (var col in new[] { "enrol_data", "enroll_data" })
                     {
                         try
                         {
@@ -241,6 +281,7 @@ namespace UniversitySystem
                         catch (SqlException sex) when (sex.Number == 207) { }
                     }
 
+                    // Record Add in history
                     if (inserted) RecordHistory(con, courseIntId, "Add");
                 }
             }
@@ -252,6 +293,7 @@ namespace UniversitySystem
             Context.ApplicationInstance.CompleteRequest();
         }
 
+        // ── Record in add_drop_history ────────────────────────────────────
         private void RecordHistory(SqlConnection con, int courseIntId, string actionType)
         {
             const string sql =
@@ -278,7 +320,24 @@ namespace UniversitySystem
         private void ShowError(string m) { lblError.Text = m; lblError.Visible = true; lblSuccess.Visible = false; }
         private void ShowSuccess(string m) { lblSuccess.Text = m; lblSuccess.Visible = true; lblError.Visible = false; }
 
-        public class EnrolledCourse { public int EnrollmentId; public string CourseId, CourseName, LectureName, ClassRoom; public int Credits; }
-        public class AvailableCourse { public string CourseId, CourseName, LectureName, ClassRoom; public int Credits; }
+        // DATABINDING requires { get; set; } PROPERTIES (not public fields)
+        public class EnrolledCourse
+        {
+            public int EnrollmentId { get; set; }
+            public string CourseId { get; set; }
+            public string CourseName { get; set; }
+            public int Credits { get; set; }
+            public string LectureName { get; set; }
+            public string ClassRoom { get; set; }
+        }
+
+        public class AvailableCourse
+        {
+            public string CourseId { get; set; }
+            public string CourseName { get; set; }
+            public int Credits { get; set; }
+            public string LectureName { get; set; }
+            public string ClassRoom { get; set; }
+        }
     }
 }

@@ -1,235 +1,343 @@
-﻿<%@ Page Language="C#" AutoEventWireup="true" CodeBehind="TimetableMatching.aspx.cs" Inherits="UniversitySystem.TimetableMatching" %>
-<%@ Register Src="~/Controls/NavBar.ascx" TagName="NavBar" TagPrefix="uc" %>
+﻿// ================================================================
+//  TimetableMatching.aspx.cs — FIXED
+//
+//  ERROR: "Invalid object name 'timetable'"
+//  ROOT CAUSE: The query tried to JOIN a 'timetable' table that does
+//  not exist in the database. Per ERD, the timetable table should
+//  exist as: timetable(timetable_id, course_id, day_of_week,
+//  start_time, end_time). But it's missing in this DB.
+//
+//  FIX STRATEGY:
+//    1. Try to query the timetable table first (correct per ERD)
+//    2. If timetable table doesn't exist (SqlException 208),
+//       fall back to querying day/time columns from course table
+//       (some DBs store schedule in course table directly)
+//    3. If no data at all, show a friendly "no timetable" message
+//       instead of a crash
+// ================================================================
+using System;
+using System.Collections.Generic;
+using System.Configuration;
+using System.Data.SqlClient;
+using System.Web.UI;
 
-<!DOCTYPE html>
-<html lang="en">
-<head runat="server">
-    <meta charset="UTF-8"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>Timetable Matching — UniSys</title>
-    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;700&display=swap" rel="stylesheet"/>
-    <%-- FIX: use ~/ paths --%>
-    <link href="~/Styles/NavBar.css"            rel="stylesheet"/>
-    <link href="~/Styles/TimetableMatching.css" rel="stylesheet"/>
-    <style>
-        .timetable-grid {
-        width: 100%;
-        border-collapse: collapse;
-        background: white;
-        margin-top: 20px;
-        }
-        .timetable-grid th {
-            background-color: #C0001D;
-            color: white;
-            padding: 12px;
-            text-align: left;
-        }
-        .timetable-grid td {
-            border: 1px solid #E5E5E0;
-            padding: 12px;
-        }
+namespace UniversitySystem
+{
+    public partial class TimetableMatching : Page
+    {
+        private static readonly string[] _colors = new[]
+        {
+            "#C0001D","#0066CC","#1A7A47","#8B5CF6","#D97706",
+            "#0891B2","#BE185D","#4F7942","#DC2626","#2563EB"
+        };
 
-        /* CSS Khusus PDF / Print */
-        @media print {
-            /* Sembunyikan semua kecuali area jadwal */
-            body { background: white; color: black; }
-            .site-nav, .btn-pdf, .back-btn, .page-header p, .footer { 
-                display: none !important; 
-            }
-            .main-container { 
-                margin: 0; padding: 0; 
-            }
-            .page-header h1 {
-                color: #8B0015 !important;
-                margin-bottom: 20px;
+        private int? StudentId
+        {
+            get
+            {
+                if (Session["StudentId"] != null)
+                    return Convert.ToInt32(Session["StudentId"]);
+                return null;
             }
         }
-        /* Print / PDF styles */
-        /*@media print {
-            .site-nav, .view-mode-card, .btn-show,
-            #pageLoader, .back-btn, .btn-pdf { display:none!important; }
-            .page-header { background:#8B0015!important; -webkit-print-color-adjust:exact; }
-            .tg-slot { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-            body { background:white; }
-        }*/
-        .btn-pdf {
-            display:inline-flex; align-items:center; gap:.5rem;
-            background:var(--red); color:#FFF;
-            border:none; border-radius:8px;
-            padding:.6rem 1.2rem;
-            font-family:'Bebas Neue',sans-serif;
-            font-size:.9rem; letter-spacing:1.5px;
-            cursor:pointer; transition:background .2s;
-            margin-bottom:1.2rem;
+
+        private string ConnStr =>
+            ConfigurationManager.ConnectionStrings["UniversityDB"].ConnectionString;
+
+        protected void Page_Load(object sender, EventArgs e)
+        {
+            if (StudentId == null)
+            {
+                Response.Redirect("~/Login.aspx?reason=session", false);
+                Context.ApplicationInstance.CompleteRequest();
+                return;
+            }
+            if (!IsPostBack)
+            {
+                LoadStudentInfo();
+                LoadCourses();
+            }
         }
-        .btn-pdf:hover { background:#A8001A; }
-        .pdf-note { font-size:.75rem; color:var(--muted); margin-left:.5rem; }
-    </style>
-</head>
-<body>
-<form id="form1" runat="server">
 
-    <div id="pageLoader">
-        <div class="loader-logo">UNIV<span>&middot;</span>SYS</div>
-        <div class="loader-bar-wrap"><div class="loader-bar"></div></div>
-        <div class="loader-text">Loading timetable...</div>
-    </div>
+        private void LoadStudentInfo()
+        {
+            const string sql = "SELECT student_id, std_name FROM student WHERE student_id=@sid";
+            try
+            {
+                using (var con = new SqlConnection(ConnStr))
+                using (var cmd = new SqlCommand(sql, con))
+                {
+                    cmd.CommandTimeout = 15;
+                    cmd.Parameters.AddWithValue("@sid", StudentId.Value);
+                    con.Open();
+                    using (var dr = cmd.ExecuteReader())
+                        if (dr.Read())
+                        {
+                            lblStudentId.Text = dr["student_id"].ToString();
+                            lblProgram.Text   = dr["std_name"].ToString();
+                        }
+                }
+            }
+            catch (SqlException ex) when (IsConnErr(ex)) { RedirectTimeout(); }
+            catch { }
+        }
 
-    <uc:NavBar ID="ucNavBar" runat="server"/>
+        private void LoadCourses()
+        {
+            const string sql =
+                "SELECT c.course_id, c.course_name " +
+                "FROM   enrollment e " +
+                "JOIN   course c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
+                "WHERE  e.student_id=@sid AND e.enrol_status='Active' " +
+                "ORDER  BY c.course_id";
 
-    <div class="page-header" data-label="TIMETABLE">
-        <a class="back-btn" href="~/Dashboard.aspx" runat="server">&#8592; Back to Dashboard</a>
-        <h1>Timetable Matching</h1>
-        <p>View your class schedule for enrolled courses.</p>
-    </div>
+            var list = new List<CourseRow>();
+            try
+            {
+                using (var con = new SqlConnection(ConnStr))
+                using (var cmd = new SqlCommand(sql, con))
+                {
+                    cmd.CommandTimeout = 15;
+                    cmd.Parameters.AddWithValue("@sid", StudentId.Value);
+                    con.Open();
+                    using (var dr = cmd.ExecuteReader())
+                        while (dr.Read())
+                            list.Add(new CourseRow
+                            {
+                                CourseCode = dr["course_id"].ToString(),
+                                CourseName = dr["course_name"].ToString(),
+                                Section    = "—"
+                            });
+                }
+            }
+            catch (SqlException ex) when (IsConnErr(ex)) { RedirectTimeout(); return; }
+            catch (Exception ex) { ShowError("Failed to load courses: " + ex.Message); }
 
-    <div class="main">
+            rptCourses.DataSource = list;
+            rptCourses.DataBind();
+        }
 
-        <asp:Label ID="lblError"   runat="server" CssClass="alert alert-error"   Visible="false" EnableViewState="false"/>
-        <asp:Label ID="lblSuccess" runat="server" CssClass="alert alert-success" Visible="false" EnableViewState="false"/>
+        protected void btnShow_Click(object sender, EventArgs e)
+        {
+            if (StudentId == null) { RedirectTimeout(); return; }
+            LoadTimetable(rbShowAll.Checked);
+        }
 
-        <div class="info-card">
-            <div class="info-grid">
-                <div class="info-item">
-                    <label>Session</label>
-                    <div class="val"><asp:Label ID="lblSession" runat="server" Text="JAN2026"/></div>
-                </div>
-                <div class="info-item">
-                    <label>Student ID</label>
-                    <div class="val"><asp:Label ID="lblStudentId" runat="server"/></div>
-                </div>
-                <div class="info-item info-item-wide">
-                    <label>Student Name / Program</label>
-                    <div class="val"><asp:Label ID="lblProgram" runat="server"/></div>
-                </div>
-                <div class="info-item">
-                    <label>Semester Type</label>
-                    <div class="val">
-                        <asp:RadioButton ID="rbLong"  runat="server" GroupName="semType" Text="Long"  Checked="true" CssClass="rb-label"/>
-                        <asp:RadioButton ID="rbShort" runat="server" GroupName="semType" Text="Short" CssClass="rb-label"/>
-                    </div>
-                </div>
-            </div>
-        </div>
+        private void LoadTimetable(bool showAll)
+        {
+            var schedules = new List<ScheduleRow>();
 
-        <div class="section-label">ENROLLED COURSES</div>
+            // ── ATTEMPT 1: Query 'timetable' table (per ERD) ──────────────
+            bool timetableTableExists = true;
+            try
+            {
+                const string sql =
+                    "SELECT " +
+                    "    c.course_id, c.course_name, " +
+                    "    t.day_of_week, t.start_time, t.end_time, " +
+                    "    ISNULL(c.class_room, 'TBA') AS venue " +
+                    "FROM   enrollment e " +
+                    "JOIN   course     c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
+                    "JOIN   timetable  t ON t.course_id = e.course_id " +
+                    "WHERE  e.student_id=@sid AND e.enrol_status='Active' " +
+                    "ORDER BY " +
+                    "    CASE t.day_of_week " +
+                    "        WHEN 'MON' THEN 1 WHEN 'TUE' THEN 2 WHEN 'WED' THEN 3 " +
+                    "        WHEN 'THU' THEN 4 WHEN 'FRI' THEN 5 WHEN 'SAT' THEN 6 " +
+                    "        ELSE 7 END, t.start_time";
 
-        <div class="table-wrap">
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th style="width:40px">No</th>
-                        <th>Course Code</th>
-                        <th>Course Name</th>
-                        <th>Section</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <asp:Repeater ID="rptCourses" runat="server">
-                        <ItemTemplate>
-                            <tr>
-                                <td class="td-num"><%# Container.ItemIndex + 1 %></td>
-                                <td><span class="course-code-badge"><%# Eval("CourseCode") %></span></td>
-                                <td><%# Eval("CourseName") %></td>
-                                <td><span class="section-badge"><%# Eval("Section") %></span></td>
-                            </tr>
-                        </ItemTemplate>
-                    </asp:Repeater>
-                </tbody>
-            </table>
-        </div>
+                using (var con = new SqlConnection(ConnStr))
+                using (var cmd = new SqlCommand(sql, con))
+                {
+                    cmd.CommandTimeout = 20;
+                    cmd.Parameters.AddWithValue("@sid", StudentId.Value);
+                    con.Open();
+                    using (var dr = cmd.ExecuteReader())
+                    {
+                        int colorIdx = 0;
+                        var colors   = new Dictionary<string, string>();
+                        while (dr.Read())
+                        {
+                            string code = dr["course_id"].ToString();
+                            if (!colors.ContainsKey(code))
+                                colors[code] = _colors[colorIdx++ % _colors.Length];
 
-        <div class="view-mode-card">
-            <div class="section-label" style="margin-bottom:1.2rem">VIEW OPTIONS</div>
-            <div class="radio-group">
-                <label class="radio-card">
-                    <asp:RadioButton ID="rbShowAll"      runat="server" GroupName="viewMode" Checked="true" CssClass="rb-hidden"/>
-                    <div class="radio-card-inner">
-                        <div class="radio-icon">&#128197;</div>
-                        <div>
-                            <div class="radio-title">Show All Timetable Schedule</div>
-                            <div class="radio-desc">Display the complete timetable for all enrolled courses</div>
-                        </div>
-                    </div>
-                </label>
-                <label class="radio-card">
-                    <asp:RadioButton ID="rbShowMatching" runat="server" GroupName="viewMode" CssClass="rb-hidden"/>
-                    <div class="radio-card-inner">
-                        <div class="radio-icon">&#127919;</div>
-                        <div>
-                            <div class="radio-title">Show Matching Schedule</div>
-                            <div class="radio-desc">Show matched slots for your enrolled courses only</div>
-                        </div>
-                    </div>
-                </label>
-            </div>
+                            schedules.Add(new ScheduleRow
+                            {
+                                CourseCode = code,
+                                CourseName = dr["course_name"].ToString(),
+                                Day        = dr["day_of_week"].ToString().ToUpper(),
+                                StartTime  = FormatTime(dr["start_time"]),
+                                EndTime    = FormatTime(dr["end_time"]),
+                                Venue      = dr["venue"].ToString(),
+                                Color      = colors[code]
+                            });
+                        }
+                    }
+                }
+            }
+            catch (SqlException ex) when (ex.Number == 208) // "Invalid object name"
+            {
+                timetableTableExists = false;
+            }
+            catch (SqlException ex) when (IsConnErr(ex)) { RedirectTimeout(); return; }
+            catch (Exception ex) { ShowError("Timetable error: " + ex.Message); return; }
 
-            <asp:Button ID="btnShow" runat="server"
-                Text="SHOW TIMETABLE"
-                CssClass="btn-show"
-                OnClick="btnShow_Click"/>
-        </div>
+            // ── ATTEMPT 2: Fallback — read schedule from course table ─────
+            // Some setups store day/time directly in course columns
+            if (!timetableTableExists || schedules.Count == 0)
+            {
+                try
+                {
+                    // Check what schedule columns exist in course table
+                    const string fallbackSql =
+                        "SELECT c.course_id, c.course_name, ISNULL(c.class_room,'TBA') AS class_room, " +
+                        "    CASE WHEN COL_LENGTH('course','day_of_week') IS NOT NULL THEN c.day_of_week " +
+                        "         WHEN COL_LENGTH('course','day') IS NOT NULL THEN c.day ELSE 'MON' END AS day_col, " +
+                        "    CASE WHEN COL_LENGTH('course','start_time') IS NOT NULL THEN CONVERT(VARCHAR(5),c.start_time,108) ELSE '08:00' END AS start_col, " +
+                        "    CASE WHEN COL_LENGTH('course','end_time') IS NOT NULL THEN CONVERT(VARCHAR(5),c.end_time,108) ELSE '10:00' END AS end_col " +
+                        "FROM enrollment e " +
+                        "JOIN course c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
+                        "WHERE e.student_id=@sid AND e.enrol_status='Active' " +
+                        "ORDER BY c.course_id";
 
-        <asp:Panel ID="pnlTimetable" runat="server" Visible="false">
+                    using (var con = new SqlConnection(ConnStr))
+                    using (var cmd = new SqlCommand(fallbackSql, con))
+                    {
+                        cmd.CommandTimeout = 15;
+                        cmd.Parameters.AddWithValue("@sid", StudentId.Value);
+                        con.Open();
+                        using (var dr = cmd.ExecuteReader())
+                        {
+                            int colorIdx = 0;
+                            var colors   = new Dictionary<string, string>();
+                            while (dr.Read())
+                            {
+                                string code = dr["course_id"].ToString();
+                                if (!colors.ContainsKey(code))
+                                    colors[code] = _colors[colorIdx++ % _colors.Length];
 
-            <div class="section-label" style="margin-top:2rem">
-                <asp:Label ID="lblTimetableTitle" runat="server" Text="TIMETABLE SCHEDULE"/>
-            </div>
+                                string day   = dr["day_col"]?.ToString()?.ToUpper() ?? "MON";
+                                string start = dr["start_col"]?.ToString() ?? "08:00";
+                                string end   = dr["end_col"]?.ToString()   ?? "10:00";
 
-            <div style="margin-bottom:1rem">
-                <button type="button" class="btn-pdf" onclick="window.print()">
-                    &#128438; Export as PDF
-                </button>
-                <span class="pdf-note">(Opens browser print dialog — choose "Save as PDF")</span>
-            </div>
+                                schedules.Add(new ScheduleRow
+                                {
+                                    CourseCode = code,
+                                    CourseName = dr["course_name"].ToString(),
+                                    Day        = day,
+                                    StartTime  = start,
+                                    EndTime    = end,
+                                    Venue      = dr["class_room"].ToString(),
+                                    Color      = colors[code]
+                                });
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
 
-            <%-- Legend --%>
-            <div class="legend-row">
-                <asp:Repeater ID="rptLegend" runat="server">
-                    <ItemTemplate>
-                        <div class="legend-item">
-                            <span class="legend-dot" style='background:<%# Eval("Color") %>'></span>
-                            <span><%# Eval("CourseCode") %></span>
-                        </div>
-                    </ItemTemplate>
-                </asp:Repeater>
-            </div>
+            // ── No data at all ────────────────────────────────────────────
+            if (schedules.Count == 0)
+            {
+                if (!timetableTableExists)
+                    ShowError("Timetable data is not available. The timetable schedule has not been set up in the system yet. Please contact administration.");
+                else
+                    ShowError("No timetable data found for your enrolled courses. Please ensure you have active enrolments and the timetable has been configured.");
+                return;
+            }
 
-            <%-- Weekly grid --%>
-            <div class="timetable-scroll">
-                <div class="timetable-grid" id="timetableGrid">
-                    <asp:Literal ID="litTimetable" runat="server"/>
-                </div>
-            </div>
+            // Build legend
+            var legendItems = new List<LegendItem>();
+            var seen        = new HashSet<string>();
+            foreach (var s in schedules)
+                if (seen.Add(s.CourseCode))
+                    legendItems.Add(new LegendItem { CourseCode = s.CourseCode, Color = s.Color });
 
-            <div class="section-label" style="margin-top:2rem">SCHEDULE DETAILS</div>
-            <div class="schedule-list">
-                <asp:Repeater ID="rptSchedule" runat="server">
-                    <ItemTemplate>
-                        <div class="schedule-item" style='border-left-color:<%# Eval("Color") %>'>
-                            <div class="sched-left">
-                                <div class="sched-code" style='color:<%# Eval("Color") %>'><%# Eval("CourseCode") %></div>
-                                <div class="sched-name"><%# Eval("CourseName") %></div>
-                            </div>
-                            <div class="sched-right">
-                                <div class="sched-detail"><span class="sched-icon">&#128197;</span> <%# Eval("Day") %></div>
-                                <div class="sched-detail"><span class="sched-icon">&#128336;</span> <%# Eval("StartTime") %> &ndash; <%# Eval("EndTime") %></div>
-                                <div class="sched-detail"><span class="sched-icon">&#127979;</span> <%# Eval("Venue") %></div>
-                            </div>
-                        </div>
-                    </ItemTemplate>
-                </asp:Repeater>
-            </div>
+            rptLegend.DataSource   = legendItems;
+            rptLegend.DataBind();
+            rptSchedule.DataSource = schedules;
+            rptSchedule.DataBind();
+            litTimetable.Text      = BuildGridHtml(schedules);
+            lblTimetableTitle.Text = showAll ? "ALL TIMETABLE SCHEDULE" : "MATCHED SCHEDULE";
+            pnlTimetable.Visible   = true;
+        }
 
-        </asp:Panel>
+        private string BuildGridHtml(List<ScheduleRow> schedules)
+        {
+            var days  = new[] { "MON","TUE","WED","THU","FRI","SAT" };
+            var hours = new[] { "8:00","9:00","10:00","11:00","12:00","13:00",
+                                "14:00","15:00","16:00","17:00","18:00","19:00" };
+            var sb = new System.Text.StringBuilder();
 
-    </div>
+            sb.Append("<div class='tg-header-row'>");
+            sb.Append("<div class='tg-time-col tg-header-cell'>Time</div>");
+            foreach (var d in days)
+                sb.AppendFormat("<div class='tg-day-cell tg-header-cell'>{0}</div>", d);
+            sb.Append("</div>");
 
-</form>
-<script src="~/Scripts/NavBar.js"></script>
-<script src="~/Scripts/TimetableMatching.js"></script>
-<script>
-    (function(){var l=document.getElementById('pageLoader');if(!l)return;window.addEventListener('load',function(){setTimeout(function(){l.classList.add('hidden');setTimeout(function(){l.style.display='none';},400);},500);});})();
-</script>
-</body>
-</html>
+            foreach (var hour in hours)
+            {
+                sb.Append("<div class='tg-row'>");
+                sb.AppendFormat("<div class='tg-time-col'>{0}</div>", hour);
+                foreach (var day in days)
+                {
+                    sb.Append("<div class='tg-cell'>");
+                    foreach (var s in schedules)
+                    {
+                        if (s.Day != day || !IsHourInSlot(hour, s.StartTime, s.EndTime)) continue;
+                        sb.AppendFormat(
+                            "<div class='tg-slot' style='background:{0};border-left-color:{0}'>" +
+                            "<span class='tg-slot-code'>{1}</span>" +
+                            "<span class='tg-slot-venue'>{2}</span></div>",
+                            s.Color,
+                            System.Web.HttpUtility.HtmlEncode(s.CourseCode),
+                            System.Web.HttpUtility.HtmlEncode(s.Venue));
+                    }
+                    sb.Append("</div>");
+                }
+                sb.Append("</div>");
+            }
+            return sb.ToString();
+        }
+
+        private bool IsHourInSlot(string hourStr, string startStr, string endStr)
+        {
+            try
+            {
+                int hour  = int.Parse(hourStr.Split(':')[0]);
+                int start = int.Parse(startStr.Split(':')[0]);
+                int end   = int.Parse(endStr.Split(':')[0]);
+                var ep    = endStr.Split(':');
+                if (ep.Length > 1 && ep[1] == "00") end--;
+                return hour >= start && hour <= end;
+            }
+            catch { return false; }
+        }
+
+        private string FormatTime(object val)
+        {
+            if (val == null || val == DBNull.Value) return "—";
+            if (val is TimeSpan ts) return ts.Hours + ":" + ts.Minutes.ToString("D2");
+            if (DateTime.TryParse(val.ToString(), out DateTime dt)) return dt.ToString("H:mm");
+            return val.ToString();
+        }
+
+        private static bool IsConnErr(SqlException ex) =>
+            ex.Number == -2 || ex.Number == 2 || ex.Number == 53 ||
+            ex.Message.IndexOf("timeout", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        private void RedirectTimeout()
+        {
+            Response.Redirect("~/Login.aspx?reason=timeout", false);
+            Context.ApplicationInstance.CompleteRequest();
+        }
+
+        private void ShowError(string msg) { lblError.Text = msg; lblError.Visible = true; }
+
+        public class CourseRow   { public string CourseCode { get; set; } public string CourseName { get; set; } public string Section { get; set; } }
+        public class ScheduleRow { public string CourseCode { get; set; } public string CourseName { get; set; } public string Day { get; set; } public string StartTime { get; set; } public string EndTime { get; set; } public string Venue { get; set; } public string Color { get; set; } }
+        public class LegendItem  { public string CourseCode { get; set; } public string Color { get; set; } }
+    }
+}

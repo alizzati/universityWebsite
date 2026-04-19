@@ -128,10 +128,6 @@
     <Content Include="Controls\NavBar.ascx" />
     <Content Include="Dashboard.aspx" />
     <Content Include="Default.aspx" />
-    <Content Include="Dummy\ChangePassword %281%29.aspx" />
-    <Content Include="Dummy\ContactUs %283%29.aspx" />
-    <Content Include="Dummy\UpdateBank %281%29.aspx" />
-    <Content Include="Dummy\UpdateProfile %281%29.aspx" />
     <Content Include="favicon.ico" />
     <Content Include="Global.asax" />
     <Content Include="InvoicePayment.aspx" />
@@ -398,7 +394,9 @@
       <DependentUpon>ViewSwitcher.ascx</DependentUpon>
     </Compile>
   </ItemGroup>
-  <ItemGroup />
+  <ItemGroup>
+    <Folder Include="Dummy\" />
+  </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
     <Content Include="Scripts\jquery-3.7.0.slim.min.map" />

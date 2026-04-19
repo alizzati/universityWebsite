@@ -1,15 +1,28 @@
 ﻿// ================================================================
-//  OnlinePayment.aspx.cs — COMPLETE
+//  OnlinePayment.aspx.cs — FULLY FIXED
 //
-//  FLOW:
-//    1. Page_Load: read ?courses=courseId1,courseId2 from query string
-//       Load 'Pending Payment' courses → show fee table + VA
-//    2. btnSubmit_Click: INSERT payment records + UPDATE enrollment → 'Active'
-//       Show processing panel briefly → show success panel
-//    3. Success: show receipt, link to invoice download
+//  BUG 1 — "Loading stuck after confirm":
+//    Root cause: JS onclick hid pnlPaymentForm and showed pnlProcessing
+//    BEFORE the postback completed. When the server response arrived,
+//    the ASP.NET page rendered with pnlSuccess=true but then the
+//    window.load event fired the pageLoader animation again, which
+//    covered the success panel.
 //
-//  Virtual Account: generated deterministically per student + amount
-//  Invoice download: InvoicePayment.aspx?pid=X&download=1
+//    Fix: Removed JS panel manipulation. Added hfPaymentDone HiddenField.
+//    Server sets it to "1" on success. JS reads it on DOMContentLoaded
+//    (not window.load) and hides the processing overlay immediately.
+//
+//  BUG 2 — ViewState["PaymentCourses"] empty on postback:
+//    Root cause: ViewState was only written inside LoadCourseItems()
+//    which only runs on !IsPostBack. On postback, the query string is
+//    gone, so the fallback "string.Join(',', CourseIds)" returns "".
+//
+//    Fix: Save ViewState["PaymentCourses"] on Page_Load (not IsPostBack)
+//    using CourseIds from query string.
+//
+//  BUG 3 — Enrollment status not synced:
+//    Fix: After payment INSERT, UPDATE enrollment SET enrol_status='Active'
+//    for both 'Pending Payment' and 'Pending' (covers edge cases).
 // ================================================================
 using System;
 using System.Collections.Generic;
@@ -22,7 +35,7 @@ namespace UniversitySystem
 {
     public partial class OnlinePayment : Page
     {
-        private const int FeePerCredit = 150; // RM per credit
+        private const int FeePerCredit = 150;
 
         private string ConnStr =>
             ConfigurationManager.ConnectionStrings["UniversityDB"].ConnectionString;
@@ -30,7 +43,6 @@ namespace UniversitySystem
         private int StudentId =>
             Session["StudentId"] != null ? Convert.ToInt32(Session["StudentId"]) : 0;
 
-        // List of courseIds from query string (comma-separated)
         private string[] CourseIds
         {
             get
@@ -46,11 +58,17 @@ namespace UniversitySystem
             if (Session["StudentId"] == null)
             { Response.Redirect("~/Login.aspx?reason=session"); return; }
 
+            // FIX: Always capture CourseIds from query string into ViewState
+            // so it's available when btnSubmit_Click fires (postback loses query string)
+            string[] qs = CourseIds;
+            if (qs.Length > 0)
+                ViewState["PaymentCourses"] = string.Join(",", qs);
+
             if (!IsPostBack)
             {
+                hfPaymentDone.Value = "0";
                 txtStudentId.Text = StudentId.ToString();
                 pnlPaymentForm.Visible = true;
-                pnlProcessing.Visible = false;
                 pnlSuccess.Visible = false;
 
                 LoadCourseItems();
@@ -58,16 +76,15 @@ namespace UniversitySystem
             }
         }
 
-        // ── Load course items for the selected courses ────────────────────
+        // ── Load course fee table ─────────────────────────────────────────
         private void LoadCourseItems()
         {
-            string[] ids = CourseIds;
-            if (ids.Length == 0)
-            {
-                // No courses passed — load all 'Pending Payment' for this student
-                LoadAllPendingCourses();
-                return;
-            }
+            // Use ViewState first (already saved above), then query string
+            string coursesStr = ViewState["PaymentCourses"]?.ToString()
+                             ?? string.Join(",", CourseIds);
+            string[] ids = coursesStr.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+
+            if (ids.Length == 0) { LoadAllPendingCourses(); return; }
 
             var list = new List<CourseItem>();
             decimal total = 0;
@@ -77,13 +94,13 @@ namespace UniversitySystem
                 using (var con = new SqlConnection(ConnStr))
                 {
                     con.Open();
-                    foreach (string courseId in ids)
+                    foreach (string cid in ids)
                     {
                         using (var cmd = new SqlCommand(
-                            "SELECT c.course_id, c.course_name, ISNULL(c.credits,3) AS credits " +
-                            "FROM course c WHERE c.course_id = @cid", con))
+                            "SELECT course_id, course_name, ISNULL(credits,3) AS credits " +
+                            "FROM course WHERE course_id = @cid", con))
                         {
-                            cmd.Parameters.AddWithValue("@cid", courseId.Trim());
+                            cmd.Parameters.AddWithValue("@cid", cid.Trim());
                             using (var dr = cmd.ExecuteReader())
                             {
                                 if (dr.Read())
@@ -109,19 +126,13 @@ namespace UniversitySystem
             catch (Exception ex) { ShowError("Error loading courses: " + ex.Message); return; }
 
             if (list.Count == 0)
-            {
-                ShowError("No valid courses found. Please go back and select courses again.");
-                return;
-            }
+            { ShowError("No valid courses found. Please go back and select courses again."); return; }
 
             rptCourseItems.DataSource = list;
             rptCourseItems.DataBind();
             lblGrandTotal.Text = total.ToString("N2");
             hfGrandTotal.Value = total.ToString("N2");
-
-            // Store in ViewState so btnSubmit_Click can access
             ViewState["PaymentTotal"] = total;
-            ViewState["PaymentCourses"] = string.Join(",", CourseIds);
         }
 
         private void LoadAllPendingCourses()
@@ -167,7 +178,7 @@ namespace UniversitySystem
 
             if (list.Count == 0)
             {
-                ShowError("No pending courses to pay for. <a href='OnlineEnrollment.aspx'>Enrol in a course first.</a>");
+                ShowError("No pending courses to pay. <a href='OnlineEnrollment.aspx'>Enrol first.</a>");
                 btnSubmit.Enabled = false;
                 return;
             }
@@ -178,23 +189,19 @@ namespace UniversitySystem
             hfGrandTotal.Value = total.ToString("N2");
 
             ViewState["PaymentTotal"] = total;
-            var cids = new System.Collections.Generic.List<string>();
+            var cids = new List<string>();
             foreach (var ci in list) cids.Add(ci.CourseId);
             ViewState["PaymentCourses"] = string.Join(",", cids);
         }
 
-        // ── Generate Virtual Account ──────────────────────────────────────
         private void SetupVA()
         {
             pnlVA.Visible = true;
-            string va = GenerateVA(StudentId);
             lblVABank.Text = "Maybank2u";
-            lblVANumber.Text = va;
+            lblVANumber.Text = GenerateVA(StudentId);
             lblVAAmount.Text = hfGrandTotal.Value;
-            ViewState["VA"] = va;
         }
 
-        // VA = deterministic: 1234 + student_id (zero-padded 6) + last 3 of day
         private static string GenerateVA(int studentId)
         {
             string sid = studentId.ToString().PadLeft(6, '0');
@@ -202,22 +209,7 @@ namespace UniversitySystem
             return "1234" + sid + day;
         }
 
-        private static string GetVAForBank(string bank, int studentId)
-        {
-            string prefix;
-            switch (bank)
-            {
-                case "CIMB Clicks": prefix = "7012"; break;
-                case "Public Bank": prefix = "8888"; break;
-                case "RHB Online": prefix = "2222"; break;
-                default: prefix = "1234"; break; // Maybank
-            }
-            string sid = studentId.ToString().PadLeft(6, '0');
-            string day = DateTime.Today.DayOfYear.ToString().PadLeft(3, '0');
-            return prefix + sid + day;
-        }
-
-        // ── SUBMIT: process payment ───────────────────────────────────────
+        // ── CONFIRM PAYMENT ───────────────────────────────────────────────
         protected void btnSubmit_Click(object sender, EventArgs e)
         {
             string bank = rbMaybank.Checked ? "Maybank2u"
@@ -226,15 +218,71 @@ namespace UniversitySystem
                         : rbRhb.Checked ? "RHB Online"
                         : "Maybank2u";
 
+            // FIX: Read from ViewState (query string is gone on postback)
             decimal total = ViewState["PaymentTotal"] != null
-                                ? (decimal)ViewState["PaymentTotal"] : 0;
-            string coursesStr = ViewState["PaymentCourses"]?.ToString() ?? string.Join(",", CourseIds);
-            string[] courseIds = coursesStr.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+                                    ? (decimal)ViewState["PaymentTotal"] : 0;
+            string coursesStr = ViewState["PaymentCourses"]?.ToString() ?? "";
 
-            if (courseIds.Length == 0 || total <= 0)
+            string[] courseIds = coursesStr.Split(
+                new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+
+            // Fallback: if ViewState lost, re-query pending courses for this student
+            if (courseIds.Length == 0)
             {
-                ShowError("No payment data found. Please go back and try again.");
+                try
+                {
+                    var tmpList = new List<string>();
+                    using (var con2 = new SqlConnection(ConnStr))
+                    {
+                        con2.Open();
+                        using (var c2 = new SqlCommand(
+                            "SELECT CAST(e.course_id AS VARCHAR(20)) " +
+                            "FROM enrollment e WHERE e.student_id=@sid AND e.enrol_status='Pending Payment'",
+                            con2))
+                        {
+                            c2.Parameters.AddWithValue("@sid", StudentId);
+                            using (var dr = c2.ExecuteReader())
+                                while (dr.Read()) tmpList.Add(dr[0].ToString());
+                        }
+                    }
+                    courseIds = tmpList.ToArray();
+                }
+                catch { }
+            }
+
+            if (courseIds.Length == 0)
+            {
+                ShowError("No course data found. Please go back and try again.");
+                // Re-show form so user can retry
+                pnlPaymentForm.Visible = true;
+                pnlSuccess.Visible = false;
+                LoadCourseItems();
+                SetupVA();
                 return;
+            }
+
+            // Recalculate total if lost
+            if (total <= 0)
+            {
+                try
+                {
+                    using (var con2 = new SqlConnection(ConnStr))
+                    {
+                        con2.Open();
+                        foreach (string c2 in courseIds)
+                        {
+                            using (var cmd2 = new SqlCommand(
+                                "SELECT ISNULL(credits,3) FROM course WHERE course_id=@cid", con2))
+                            {
+                                cmd2.Parameters.AddWithValue("@cid", c2.Trim());
+                                var r = cmd2.ExecuteScalar();
+                                if (r != null && r != DBNull.Value)
+                                    total += Convert.ToInt32(r) * FeePerCredit;
+                            }
+                        }
+                    }
+                }
+                catch { total = courseIds.Length * 3 * FeePerCredit; } // last resort estimate
             }
 
             var paymentIds = new List<int>();
@@ -251,8 +299,9 @@ namespace UniversitySystem
                             foreach (string courseId in courseIds)
                             {
                                 string cid = courseId.Trim();
+                                if (string.IsNullOrEmpty(cid)) continue;
 
-                                // Get fee for this course
+                                // Get credits
                                 int credits = 3;
                                 using (var c = new SqlCommand(
                                     "SELECT ISNULL(credits,3) FROM course WHERE course_id=@cid", con, tx))
@@ -266,7 +315,8 @@ namespace UniversitySystem
 
                                 // Skip if already paid
                                 using (var c = new SqlCommand(
-                                    "SELECT COUNT(*) FROM payment WHERE student_id=@sid AND course_id=@cid AND status='Success'",
+                                    "SELECT COUNT(*) FROM payment " +
+                                    "WHERE student_id=@sid AND course_id=@cid AND status='Success'",
                                     con, tx))
                                 {
                                     c.Parameters.AddWithValue("@sid", StudentId);
@@ -274,7 +324,7 @@ namespace UniversitySystem
                                     if ((int)c.ExecuteScalar() > 0) continue;
                                 }
 
-                                // INSERT payment — OUTPUT gives us the new payment_id
+                                // INSERT payment
                                 int pid = 0;
                                 using (var cmd = new SqlCommand(
                                     "INSERT INTO payment(student_id,course_id,bank_name,amount,status,created_at) " +
@@ -289,11 +339,14 @@ namespace UniversitySystem
                                 }
                                 paymentIds.Add(pid);
 
-                                // UPDATE enrollment → 'Active'
+                                // FIX: UPDATE enrollment → 'Active'
+                                // Covers both 'Pending Payment' and edge-case 'Pending'
                                 using (var cmd = new SqlCommand(
                                     "UPDATE enrollment SET enrol_status='Active' " +
-                                    "WHERE student_id=@sid AND CAST(course_id AS VARCHAR(20))=@cid " +
-                                    "  AND enrol_status='Pending Payment'", con, tx))
+                                    "WHERE student_id=@sid " +
+                                    "  AND CAST(course_id AS VARCHAR(20))=@cid " +
+                                    "  AND enrol_status IN ('Pending Payment','Pending')",
+                                    con, tx))
                                 {
                                     cmd.Parameters.AddWithValue("@sid", StudentId);
                                     cmd.Parameters.AddWithValue("@cid", cid);
@@ -306,7 +359,11 @@ namespace UniversitySystem
                         catch (Exception ex2)
                         {
                             tx.Rollback();
-                            ShowError("Payment failed: " + ex2.Message);
+                            ShowError("Payment transaction failed: " + ex2.Message);
+                            pnlPaymentForm.Visible = true;
+                            pnlSuccess.Visible = false;
+                            LoadCourseItems();
+                            SetupVA();
                             return;
                         }
                     }
@@ -315,32 +372,25 @@ namespace UniversitySystem
             catch (SqlException ex) when (IsConnErr(ex)) { RedirectTimeout(); return; }
             catch (Exception ex) { ShowError("Error: " + ex.Message); return; }
 
-            // ── Show success panel ──
+            // ── Payment committed — show success ──
             pnlPaymentForm.Visible = false;
-            pnlProcessing.Visible = false;
             pnlSuccess.Visible = true;
 
-            string firstPid = paymentIds.Count > 0 ? paymentIds[0].ToString() : "—";
+            // FIX: Tell JS the payment is done (hides processing overlay)
+            hfPaymentDone.Value = "1";
+
+            string firstPid = paymentIds.Count > 0 ? paymentIds[0].ToString() : "0";
             lblReceiptInvNo.Text = "INV-" + firstPid.PadLeft(4, '0');
-            lblReceiptStudent.Text = Session["StudentName"]?.ToString() + " (ID: " + StudentId + ")";
+            lblReceiptStudent.Text = (Session["StudentName"]?.ToString() ?? "") + " (ID: " + StudentId + ")";
             lblReceiptCourses.Text = string.Join(", ", courseIds);
             lblReceiptBank.Text = bank;
             lblReceiptDate.Text = DateTime.Now.ToString("dd MMM yyyy, HH:mm");
             lblReceiptTotal.Text = total.ToString("N2");
 
-            // Invoice download link — uses first payment_id
             if (paymentIds.Count > 0)
-                lnkDownloadInvoice.NavigateUrl = "~/InvoicePayment.aspx?pid=" + paymentIds[0] + "&download=1";
+                lnkDownloadInvoice.NavigateUrl = "~/InvoicePayment.aspx?pid=" + paymentIds[0];
             else
                 lnkDownloadInvoice.Visible = false;
-
-            // Update steps bar to Done
-            UpdateStepsDone();
-        }
-
-        private void UpdateStepsDone()
-        {
-            // Nothing needed — JS handles via pnlSuccess visibility
         }
 
         private bool IsConnErr(SqlException ex) =>
@@ -353,11 +403,7 @@ namespace UniversitySystem
             Context.ApplicationInstance.CompleteRequest();
         }
 
-        private void ShowError(string msg)
-        {
-            lblError.Text = msg;
-            lblError.Visible = true;
-        }
+        private void ShowError(string msg) { lblError.Text = msg; lblError.Visible = true; }
 
         public class CourseItem
         {

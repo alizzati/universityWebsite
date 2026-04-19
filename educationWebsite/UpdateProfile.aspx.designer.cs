@@ -33,13 +33,13 @@ namespace UniversitySystem
         protected global::UniversitySystem.Controls.NavBar NavBar1;
 
         /// <summary>
-        /// lblAvatarInitials control.
+        /// lblInitials control.
         /// </summary>
         /// <remarks>
         /// Auto-generated field.
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
-        protected global::System.Web.UI.WebControls.Label lblAvatarInitials;
+        protected global::System.Web.UI.WebControls.Label lblInitials;
 
         /// <summary>
         /// lblHeroName control.
@@ -87,13 +87,13 @@ namespace UniversitySystem
         protected global::System.Web.UI.WebControls.Label lblStatCredits;
 
         /// <summary>
-        /// lblStatPayments control.
+        /// lblStatPaid control.
         /// </summary>
         /// <remarks>
         /// Auto-generated field.
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
-        protected global::System.Web.UI.WebControls.Label lblStatPayments;
+        protected global::System.Web.UI.WebControls.Label lblStatPaid;
 
         /// <summary>
         /// pnlSuccess control.

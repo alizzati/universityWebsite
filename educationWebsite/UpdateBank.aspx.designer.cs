@@ -60,13 +60,13 @@ namespace UniversitySystem
         protected global::System.Web.UI.WebControls.Label lblError;
 
         /// <summary>
-        /// pnlNoBankInfo control.
+        /// pnlNoBank control.
         /// </summary>
         /// <remarks>
         /// Auto-generated field.
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
-        protected global::System.Web.UI.WebControls.Panel pnlNoBankInfo;
+        protected global::System.Web.UI.WebControls.Panel pnlNoBank;
 
         /// <summary>
         /// pnlBankInfo control.
@@ -78,31 +78,31 @@ namespace UniversitySystem
         protected global::System.Web.UI.WebControls.Panel pnlBankInfo;
 
         /// <summary>
-        /// lblCurrentBank control.
+        /// lblCurBank control.
         /// </summary>
         /// <remarks>
         /// Auto-generated field.
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
-        protected global::System.Web.UI.WebControls.Label lblCurrentBank;
+        protected global::System.Web.UI.WebControls.Label lblCurBank;
 
         /// <summary>
-        /// lblCurrentHolder control.
+        /// lblCurHolder control.
         /// </summary>
         /// <remarks>
         /// Auto-generated field.
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
-        protected global::System.Web.UI.WebControls.Label lblCurrentHolder;
+        protected global::System.Web.UI.WebControls.Label lblCurHolder;
 
         /// <summary>
-        /// lblCurrentAccount control.
+        /// lblCurAccount control.
         /// </summary>
         /// <remarks>
         /// Auto-generated field.
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
-        protected global::System.Web.UI.WebControls.Label lblCurrentAccount;
+        protected global::System.Web.UI.WebControls.Label lblCurAccount;
 
         /// <summary>
         /// pnlForm control.
@@ -114,13 +114,13 @@ namespace UniversitySystem
         protected global::System.Web.UI.WebControls.Panel pnlForm;
 
         /// <summary>
-        /// ddlBankName control.
+        /// ddlBank control.
         /// </summary>
         /// <remarks>
         /// Auto-generated field.
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
-        protected global::System.Web.UI.WebControls.DropDownList ddlBankName;
+        protected global::System.Web.UI.WebControls.DropDownList ddlBank;
 
         /// <summary>
         /// rfvBank control.
@@ -132,15 +132,6 @@ namespace UniversitySystem
         protected global::System.Web.UI.WebControls.RequiredFieldValidator rfvBank;
 
         /// <summary>
-        /// otherBankGroup control.
-        /// </summary>
-        /// <remarks>
-        /// Auto-generated field.
-        /// To modify move field declaration from designer file to code-behind file.
-        /// </remarks>
-        protected global::System.Web.UI.HtmlControls.HtmlGenericControl otherBankGroup;
-
-        /// <summary>
         /// txtOtherBank control.
         /// </summary>
         /// <remarks>
@@ -150,13 +141,13 @@ namespace UniversitySystem
         protected global::System.Web.UI.WebControls.TextBox txtOtherBank;
 
         /// <summary>
-        /// txtAccountHolder control.
+        /// txtHolder control.
         /// </summary>
         /// <remarks>
         /// Auto-generated field.
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
-        protected global::System.Web.UI.WebControls.TextBox txtAccountHolder;
+        protected global::System.Web.UI.WebControls.TextBox txtHolder;
 
         /// <summary>
         /// rfvHolder control.
@@ -168,13 +159,13 @@ namespace UniversitySystem
         protected global::System.Web.UI.WebControls.RequiredFieldValidator rfvHolder;
 
         /// <summary>
-        /// txtAccountNumber control.
+        /// txtAccount control.
         /// </summary>
         /// <remarks>
         /// Auto-generated field.
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
-        protected global::System.Web.UI.WebControls.TextBox txtAccountNumber;
+        protected global::System.Web.UI.WebControls.TextBox txtAccount;
 
         /// <summary>
         /// rfvAccount control.
@@ -195,12 +186,12 @@ namespace UniversitySystem
         protected global::System.Web.UI.WebControls.RegularExpressionValidator revAccount;
 
         /// <summary>
-        /// btnUpdate control.
+        /// btnSave control.
         /// </summary>
         /// <remarks>
         /// Auto-generated field.
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
-        protected global::System.Web.UI.WebControls.Button btnUpdate;
+        protected global::System.Web.UI.WebControls.Button btnSave;
     }
 }

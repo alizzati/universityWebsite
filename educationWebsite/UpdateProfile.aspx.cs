@@ -1,12 +1,19 @@
 ﻿// ================================================================
-//  UpdateProfile.aspx.cs — COMPLETE
-//  Features:
-//    1. View profile (labels at top)
-//    2. Edit profile form below
-//    3. Avatar initials from name
-//    4. Stats: active courses, credits, payments
-//  ERD: student(student_id, std_name, std_email, std_password,
-//               std_phone, std_address)
+//  UpdateProfile.aspx.cs
+//
+//  ALUR KERJA:
+//  1. Page_Load → cek session login
+//  2. LoadProfile() → baca dari DB, isi labels View + form fields
+//  3. LoadStats()   → hitung courses/credits/payments
+//  4. btnUpdate_Click → validasi → UPDATE DB → refresh labels
+//
+//  LOGIKA:
+//  - Labels (lblView*) = display read-only di atas
+//  - TextBox (txt*)    = form edit di bawah, pre-filled dari DB
+//  - Setelah save: session diupdate, labels di-refresh
+//
+//  ERD: student(student_id INT PK, std_name, std_email,
+//               std_password, std_phone, std_address)
 // ================================================================
 using System;
 using System.Configuration;
@@ -23,6 +30,7 @@ namespace UniversitySystem
         private int StudentId =>
             Session["StudentId"] != null ? Convert.ToInt32(Session["StudentId"]) : 0;
 
+        // ── 1. Page Load ─────────────────────────────────────────────────
         protected void Page_Load(object sender, EventArgs e)
         {
             if (Session["StudentId"] == null)
@@ -31,6 +39,7 @@ namespace UniversitySystem
                 return;
             }
 
+            // Only load on first visit, not on postback (button click)
             if (!IsPostBack)
             {
                 LoadProfile();
@@ -38,13 +47,15 @@ namespace UniversitySystem
             }
         }
 
-        // ── Load profile data into both view labels and edit form ────────
+        // ── 2. Read profile from DB ───────────────────────────────────────
         private void LoadProfile()
         {
             const string sql = @"
-                SELECT student_id, std_name, std_email,
-                       ISNULL(std_phone,   '')   AS std_phone,
-                       ISNULL(std_address, '')   AS std_address
+                SELECT student_id,
+                       std_name,
+                       std_email,
+                       ISNULL(std_phone,   '') AS std_phone,
+                       ISNULL(std_address, '') AS std_address
                 FROM   student
                 WHERE  student_id = @sid";
 
@@ -59,31 +70,35 @@ namespace UniversitySystem
                     {
                         if (dr.Read())
                         {
+                            string id = dr["student_id"].ToString();
                             string name = dr["std_name"].ToString();
                             string email = dr["std_email"].ToString();
                             string phone = dr["std_phone"].ToString();
                             string address = dr["std_address"].ToString();
-                            string id = dr["student_id"].ToString();
 
-                            // Hero section
+                            // Hero labels (top header)
+                            lblInitials.Text = GetInitials(name);
                             lblHeroName.Text = name;
                             lblHeroId.Text = id;
                             lblHeroEmail.Text = email;
-                            lblAvatarInitials.Text = GetInitials(name);
 
-                            // View labels
+                            // Read-only view labels
                             lblViewId.Text = id;
                             lblViewName.Text = name;
                             lblViewEmail.Text = email;
                             lblViewPhone.Text = string.IsNullOrEmpty(phone) ? "—" : phone;
                             lblViewAddress.Text = string.IsNullOrEmpty(address) ? "—" : address;
 
-                            // Edit form pre-fill
+                            // Edit form — pre-fill fields
                             txtStudentId.Text = id;
                             txtName.Text = name;
                             txtEmail.Text = email;
                             txtPhone.Text = phone;
                             txtAddress.Text = address;
+                        }
+                        else
+                        {
+                            ShowError("Student record not found.");
                         }
                     }
                 }
@@ -94,7 +109,7 @@ namespace UniversitySystem
             }
         }
 
-        // ── Load statistics (courses, credits, payments) ─────────────────
+        // ── 3. Load statistics ────────────────────────────────────────────
         private void LoadStats()
         {
             try
@@ -103,7 +118,7 @@ namespace UniversitySystem
                 {
                     con.Open();
 
-                    // Active courses
+                    // Count active enrollments
                     using (var cmd = new SqlCommand(
                         "SELECT COUNT(*) FROM enrollment WHERE student_id=@sid AND enrol_status='Active'", con))
                     {
@@ -111,7 +126,7 @@ namespace UniversitySystem
                         lblStatCourses.Text = cmd.ExecuteScalar().ToString();
                     }
 
-                    // Total credits of active courses
+                    // Sum credits of active courses
                     using (var cmd = new SqlCommand(
                         @"SELECT ISNULL(SUM(c.credits),0)
                           FROM enrollment e
@@ -122,19 +137,19 @@ namespace UniversitySystem
                         lblStatCredits.Text = cmd.ExecuteScalar().ToString();
                     }
 
-                    // Total successful payments
+                    // Count successful payments
                     using (var cmd = new SqlCommand(
                         "SELECT COUNT(*) FROM payment WHERE student_id=@sid AND status='Success'", con))
                     {
                         cmd.Parameters.AddWithValue("@sid", StudentId);
-                        lblStatPayments.Text = cmd.ExecuteScalar().ToString();
+                        lblStatPaid.Text = cmd.ExecuteScalar().ToString();
                     }
                 }
             }
-            catch { }
+            catch { /* stats non-critical, silently ignore */ }
         }
 
-        // ── Save updated profile ─────────────────────────────────────────
+        // ── 4. Save updated profile ───────────────────────────────────────
         protected void btnUpdate_Click(object sender, EventArgs e)
         {
             if (!Page.IsValid) return;
@@ -143,6 +158,9 @@ namespace UniversitySystem
             string email = txtEmail.Text.Trim();
             string phone = txtPhone.Text.Trim();
             string address = txtAddress.Text.Trim();
+
+            if (string.IsNullOrEmpty(name)) { ShowError("Name cannot be empty."); return; }
+            if (string.IsNullOrEmpty(email)) { ShowError("Email cannot be empty."); return; }
 
             const string sql = @"
                 UPDATE student
@@ -159,48 +177,48 @@ namespace UniversitySystem
                 {
                     cmd.Parameters.AddWithValue("@name", name);
                     cmd.Parameters.AddWithValue("@email", email);
-                    cmd.Parameters.AddWithValue("@phone", string.IsNullOrEmpty(phone) ? (object)DBNull.Value : phone);
-                    cmd.Parameters.AddWithValue("@address", string.IsNullOrEmpty(address) ? (object)DBNull.Value : address);
+                    cmd.Parameters.AddWithValue("@phone", (object)phone ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@address", (object)address ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@sid", StudentId);
                     con.Open();
-                    int rows = cmd.ExecuteNonQuery();
 
+                    int rows = cmd.ExecuteNonQuery();
                     if (rows > 0)
                     {
-                        // Update session
+                        // Update session so NavBar shows new name
                         Session["StudentName"] = name;
                         Session["StudentEmail"] = email;
 
                         pnlSuccess.Visible = true;
                         pnlError.Visible = false;
 
-                        // Refresh view labels
+                        // Refresh all display labels after save
                         LoadProfile();
                         LoadStats();
                     }
                     else
                     {
-                        ShowError("No changes were saved.");
+                        ShowError("Update failed — no rows changed.");
                     }
                 }
             }
             catch (SqlException ex) when (ex.Number == 2627 || ex.Number == 2601)
             {
-                ShowError("This email address is already registered to another account.");
+                ShowError("That email is already used by another account.");
             }
             catch (Exception ex)
             {
-                ShowError("An error occurred: " + ex.Message);
+                ShowError("Error: " + ex.Message);
             }
         }
 
-        // ── Helpers ──────────────────────────────────────────────────────
-        private static string GetInitials(string fullName)
+        // ── Helpers ───────────────────────────────────────────────────────
+        private static string GetInitials(string name)
         {
-            if (string.IsNullOrWhiteSpace(fullName)) return "S";
-            var parts = fullName.Trim().Split(new[] { ' ' }, System.StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 1) return parts[0].Substring(0, 1).ToUpper();
-            return (parts[0].Substring(0, 1) + parts[parts.Length - 1].Substring(0, 1)).ToUpper();
+            if (string.IsNullOrWhiteSpace(name)) return "S";
+            var parts = name.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 1) return parts[0][0].ToString().ToUpper();
+            return (parts[0][0].ToString() + parts[parts.Length - 1][0].ToString()).ToUpper();
         }
 
         private void ShowError(string msg)

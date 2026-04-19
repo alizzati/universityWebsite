@@ -1,9 +1,12 @@
 ﻿// ================================================================
-//  InvoicePayment.aspx.cs — COMPLETE
-//  Uses UniversityDB payment table per ERD
-//  Supports: ?pid=X (single invoice) | ?period=JAN2026 (period filter)
-//            ?download=1 renders print-friendly page
-//  Namespace: UniversitySystem | Session: "StudentId" (int)
+//  InvoicePayment.aspx.cs — FIXED
+//
+//  REQUIREMENT: Show invoice grouped by payment session.
+//  If user paid 5 courses in one session, show all 5 on one invoice.
+//
+//  When ?pid=X is given: show all payments from the same batch
+//  (same created_at minute + bank + student), not just payment X.
+//  This ensures the invoice shows the complete transaction.
 // ================================================================
 using System;
 using System.Configuration;
@@ -28,7 +31,7 @@ namespace UniversitySystem
 
             if (!IsPostBack)
             {
-                // Pre-select period to current month
+                // Pre-select current month
                 string currentPeriod = DateTime.Now.ToString("MMM").ToUpper() + DateTime.Now.Year;
                 foreach (System.Web.UI.WebControls.ListItem item in ddlPeriod.Items)
                     if (item.Value.Equals(currentPeriod, StringComparison.OrdinalIgnoreCase))
@@ -53,11 +56,9 @@ namespace UniversitySystem
             LoadInvoiceDetail();
         }
 
-        // ── Summary totals ────────────────────────────────────────────────
         private void LoadSummary()
         {
             GetPeriodDates(out int month, out int year);
-
             const string sql =
                 "SELECT ISNULL(SUM(amount), 0) FROM payment " +
                 "WHERE student_id=@sid AND MONTH(created_at)=@m AND YEAR(created_at)=@y AND status='Success'";
@@ -84,12 +85,9 @@ namespace UniversitySystem
             }
         }
 
-        // ── Invoice detail grid ───────────────────────────────────────────
         private void LoadInvoiceDetail()
         {
             GetPeriodDates(out int month, out int year);
-
-            // Check if a specific payment_id is requested (?pid=X)
             string pidStr = Request.QueryString["pid"];
 
             string sql;
@@ -98,29 +96,34 @@ namespace UniversitySystem
 
             if (!string.IsNullOrEmpty(pidStr) && int.TryParse(pidStr, out int pid))
             {
+                // FIX: Load ALL payments from the same batch as the given pid.
+                // A "batch" = payments made within the same minute by the same student.
                 sql =
                     "SELECT 'INV-' + RIGHT('0000' + CAST(p.payment_id AS VARCHAR), 4) AS Particulars, " +
                     "       'Course Fee' AS Type, " +
-                    "       FORMAT(p.created_at,'dd/MM/yyyy') AS DocumentDate, " +
-                    "       p.amount AS Amount, p.amount AS AmountSettled, " +
-                    "       p.status AS Status, p.course_id, " +
-                    "       ISNULL(c.course_name,'—') AS course_name, p.bank_name " +
+                    "       FORMAT(p.created_at,'dd/MM/yyyy HH:mm') AS DocumentDate, " +
+                    "       p.amount AS Amount, p.status AS Status, " +
+                    "       p.course_id, ISNULL(c.course_name,'—') AS course_name, p.bank_name " +
                     "FROM payment p " +
                     "LEFT JOIN course c ON c.course_id = p.course_id " +
-                    "WHERE p.payment_id=@pid AND p.student_id=@sid";
+                    "WHERE p.student_id = @sid " +
+                    "  AND CONVERT(VARCHAR(16), p.created_at, 120) = (" +
+                    "      SELECT CONVERT(VARCHAR(16), created_at, 120) FROM payment WHERE payment_id=@pid AND student_id=@sid" +
+                    "  ) " +
+                    "ORDER BY p.payment_id";
                 cmd = new SqlCommand(sql, con);
                 cmd.Parameters.AddWithValue("@pid", pid);
                 cmd.Parameters.AddWithValue("@sid", StudentId);
             }
             else
             {
+                // Show all payments for selected period
                 sql =
                     "SELECT 'INV-' + RIGHT('0000' + CAST(p.payment_id AS VARCHAR), 4) AS Particulars, " +
                     "       'Course Fee' AS Type, " +
-                    "       FORMAT(p.created_at,'dd/MM/yyyy') AS DocumentDate, " +
-                    "       p.amount AS Amount, p.amount AS AmountSettled, " +
-                    "       p.status AS Status, p.course_id, " +
-                    "       ISNULL(c.course_name,'—') AS course_name, p.bank_name " +
+                    "       FORMAT(p.created_at,'dd/MM/yyyy HH:mm') AS DocumentDate, " +
+                    "       p.amount AS Amount, p.status AS Status, " +
+                    "       p.course_id, ISNULL(c.course_name,'—') AS course_name, p.bank_name " +
                     "FROM payment p " +
                     "LEFT JOIN course c ON c.course_id = p.course_id " +
                     "WHERE p.student_id=@sid AND MONTH(p.created_at)=@m AND YEAR(p.created_at)=@y " +
@@ -144,13 +147,11 @@ namespace UniversitySystem
             finally { con.Dispose(); cmd.Dispose(); }
         }
 
-        // ── Helper: parse selected period dropdown to month + year ────────
         private void GetPeriodDates(out int month, out int year)
         {
-            string period = ddlPeriod.SelectedValue ?? "";          // e.g. "JAN2026"
+            string period = ddlPeriod.SelectedValue ?? "";
             month = DateTime.Now.Month;
             year = DateTime.Now.Year;
-
             if (period.Length >= 7)
             {
                 month = MonthFromAbbr(period.Substring(0, 3));

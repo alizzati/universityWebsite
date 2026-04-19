@@ -1,7 +1,22 @@
 ﻿// ================================================================
-//  ChangePassword.aspx.cs — COMPLETE
-//  Uses plaintext password comparison (consistent with Login.aspx)
-//  ERD: student(student_id, std_name, std_email, std_password, ...)
+//  ChangePassword.aspx.cs
+//
+//  ALUR KERJA:
+//  1. Page_Load → cek session, tidak ada loading data (tidak perlu)
+//  2. btnChange_Click:
+//     a. Validasi form (ASP.NET validators + server-side)
+//     b. Baca password lama dari DB
+//     c. Bandingkan dengan input current password (plaintext)
+//     d. Cek password baru ≠ password lama
+//     e. UPDATE student SET std_password = @newPwd
+//     f. Sembunyikan form, tampilkan success screen
+//
+//  LOGIKA PASSWORD:
+//  - Sistem ini menyimpan password sebagai PLAINTEXT
+//    (konsisten dengan Login.aspx yang juga plaintext compare)
+//  - JANGAN hash di sini jika Login tidak hash — harus konsisten
+//
+//  ERD: student(student_id INT PK, std_password varchar, ...)
 // ================================================================
 using System;
 using System.Configuration;
@@ -25,17 +40,26 @@ namespace UniversitySystem
                 Response.Redirect("~/Login.aspx");
                 return;
             }
+            // No data to load on GET — form is empty by design
         }
 
-        protected void btnChangePassword_Click(object sender, EventArgs e)
+        protected void btnChange_Click(object sender, EventArgs e)
         {
+            // ASP.NET validators handle client-side. We re-check server-side too.
             if (!Page.IsValid) return;
 
-            string currentPwd = txtCurrentPassword.Text; // do NOT trim passwords
-            string newPwd = txtNewPassword.Text;
-            string confirmPwd = txtConfirmPassword.Text;
+            // Read raw values — NEVER trim passwords
+            string currentPwd = txtCurrent.Text;
+            string newPwd = txtNew.Text;
+            string confirmPwd = txtConfirm.Text;
 
-            // Extra server-side check (CompareValidator handles client-side)
+            // ── Server-side validation ───────────────────────────────────
+            if (string.IsNullOrEmpty(currentPwd))
+            {
+                ShowError("Please enter your current password.");
+                return;
+            }
+
             if (newPwd != confirmPwd)
             {
                 ShowError("New password and confirmation do not match.");
@@ -48,7 +72,6 @@ namespace UniversitySystem
                 return;
             }
 
-            // Cannot reuse same password
             if (currentPwd == newPwd)
             {
                 ShowError("New password must be different from your current password.");
@@ -61,30 +84,33 @@ namespace UniversitySystem
                 {
                     con.Open();
 
-                    // 1. Verify current password (plaintext — consistent with Login.aspx)
-                    const string verifySql = "SELECT std_password FROM student WHERE student_id = @sid";
+                    // ── Step 1: Verify current password ─────────────────
                     string stored = null;
-                    using (var cmd = new SqlCommand(verifySql, con))
+                    using (var cmd = new SqlCommand(
+                        "SELECT std_password FROM student WHERE student_id = @sid", con))
                     {
                         cmd.Parameters.AddWithValue("@sid", StudentId);
                         var result = cmd.ExecuteScalar();
                         stored = result?.ToString();
                     }
 
-                    if (stored == null || stored != currentPwd)
+                    if (stored == null)
                     {
-                        ShowError("Current password is incorrect. Please try again.");
-                        txtCurrentPassword.Text = "";
+                        ShowError("Student account not found.");
                         return;
                     }
 
-                    // 2. Update to new password
-                    const string updateSql = @"
-                        UPDATE student
-                        SET    std_password = @newPwd
-                        WHERE  student_id   = @sid";
+                    // Plaintext comparison — consistent with Login.aspx
+                    if (stored != currentPwd)
+                    {
+                        ShowError("Current password is incorrect. Please try again.");
+                        txtCurrent.Text = ""; // clear wrong password field
+                        return;
+                    }
 
-                    using (var cmd = new SqlCommand(updateSql, con))
+                    // ── Step 2: Update to new password ───────────────────
+                    using (var cmd = new SqlCommand(
+                        "UPDATE student SET std_password = @newPwd WHERE student_id = @sid", con))
                     {
                         cmd.Parameters.AddWithValue("@newPwd", newPwd);
                         cmd.Parameters.AddWithValue("@sid", StudentId);
@@ -92,6 +118,7 @@ namespace UniversitySystem
 
                         if (rows > 0)
                         {
+                            // Hide form, show success screen
                             pnlForm.Visible = false;
                             pnlSuccess.Visible = true;
                             pnlError.Visible = false;

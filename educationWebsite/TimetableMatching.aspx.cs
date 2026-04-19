@@ -1,19 +1,4 @@
-﻿// ================================================================
-//  TimetableMatching.aspx.cs — FIXED
-//
-//  ROOT CAUSE of Line 122 error:
-//    C# verbatim string interpolation  $@"..."  containing a CASE
-//    expression with single-quoted SQL strings confuses the C# parser
-//    in .NET Framework (it interprets SQL's 'MON' as ending the C# string).
-//    FIX: Split SQL into a plain const string + separate dayOrder const.
-//
-//  Other fixes:
-//    - Removed JOIN to non-ERD 'program' table
-//    - timetable.venue does not exist in ERD — use c.class_room as venue
-//    - is_evaluated column not referenced here (not needed)
-//    - FormatTime handles both DateTime and TimeSpan DB return types
-// ================================================================
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Data.SqlClient;
@@ -58,7 +43,6 @@ namespace UniversitySystem
             }
         }
 
-        // ── Load student info (ERD: student has no program column) ───────
         private void LoadStudentInfo()
         {
             const string sql =
@@ -82,10 +66,9 @@ namespace UniversitySystem
                 }
             }
             catch (SqlException ex) when (IsConnErr(ex)) { RedirectTimeout(); }
-            catch { /* non-critical */ }
+            catch { }
         }
 
-        // ── Load enrolled courses ─────────────────────────────────────────
         private void LoadCourses()
         {
             const string sql =
@@ -110,7 +93,7 @@ namespace UniversitySystem
                             {
                                 CourseCode = dr["course_id"].ToString(),
                                 CourseName = dr["course_name"].ToString(),
-                                Section = "1MB1"
+                                Section = "—"
                             });
                 }
             }
@@ -121,7 +104,6 @@ namespace UniversitySystem
             rptCourses.DataBind();
         }
 
-        // ── Show timetable button ─────────────────────────────────────────
         protected void btnShow_Click(object sender, EventArgs e)
         {
             if (StudentId == null) { RedirectTimeout(); return; }
@@ -130,20 +112,15 @@ namespace UniversitySystem
 
         private void LoadTimetable(bool showAll)
         {
-            // ── FIX: Do NOT use $@"..." — SQL CASE single-quotes break C# parser ──
-            // ── Use plain string concatenation instead ──
-            // ERD: timetable(timetable_id, course_id INT FK, day_of_week, start_time, end_time)
-            // ERD has NO 'venue' column — use c.class_room as fallback venue
             const string sql =
                 "SELECT " +
                 "    c.course_id, c.course_name, " +
-                "    c.day_of_week, c.start_time, c.end_time, " +
+                "    t.day_of_week, t.start_time, t.end_time, " +
                 "    ISNULL(c.class_room, 'TBA') AS venue " +
-                "FROM   enrollment  e " +
-                "JOIN   course     c ON c.course_id = CAST(c.course_id AS VARCHAR(20)) " +
-                "JOIN   enrollment e ON CAST(e.course_id AS VARCHAR(20)) = c.course_id " +
-                "                   AND e.student_id   = @sid " +
-                "                   AND e.enrol_status = 'Active' " +
+                "FROM   enrollment e " +
+                "JOIN   course c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
+                "JOIN   timetable t ON t.course_id = e.course_id " +
+                "WHERE  e.student_id = @sid AND e.enrol_status = 'Active' " +
                 "ORDER BY " +
                 "    CASE t.day_of_week " +
                 "        WHEN 'MON' THEN 1 WHEN 'TUE' THEN 2 WHEN 'WED' THEN 3 " +
@@ -152,7 +129,6 @@ namespace UniversitySystem
                 "    t.start_time";
 
             var schedules = new List<ScheduleRow>();
-            bool hasRealData = false;
 
             try
             {
@@ -168,7 +144,6 @@ namespace UniversitySystem
                         var colors = new Dictionary<string, string>();
                         while (dr.Read())
                         {
-                            hasRealData = true;
                             string code = dr["course_id"].ToString();
                             if (!colors.ContainsKey(code))
                                 colors[code] = _colors[colorIdx++ % _colors.Length];
@@ -188,12 +163,14 @@ namespace UniversitySystem
                 }
             }
             catch (SqlException ex) when (IsConnErr(ex)) { RedirectTimeout(); return; }
-            catch (Exception ex) { ShowError("Timetable error: " + ex.Message); }
+            catch (Exception ex) { ShowError("Timetable error: " + ex.Message); return; }
 
-            if (!hasRealData || schedules.Count == 0)
-                schedules = GetDemoSchedules();
+            if (schedules.Count == 0)
+            {
+                ShowError("No timetable data found for your enrolled courses. Please contact the administration.");
+                return;
+            }
 
-            // Build legend
             var legendItems = new List<LegendItem>();
             var seen = new HashSet<string>();
             foreach (var s in schedules)
@@ -209,7 +186,6 @@ namespace UniversitySystem
             pnlTimetable.Visible = true;
         }
 
-        // ── Build weekly grid HTML ────────────────────────────────────────
         private string BuildGridHtml(List<ScheduleRow> schedules)
         {
             var days = new[] { "MON", "TUE", "WED", "THU", "FRI", "SAT" };
@@ -217,14 +193,12 @@ namespace UniversitySystem
                                 "14:00","15:00","16:00","17:00","18:00","19:00" };
             var sb = new System.Text.StringBuilder();
 
-            // Header row
             sb.Append("<div class='tg-header-row'>");
             sb.Append("<div class='tg-time-col tg-header-cell'>Time</div>");
             foreach (var d in days)
                 sb.AppendFormat("<div class='tg-day-cell tg-header-cell'>{0}</div>", d);
             sb.Append("</div>");
 
-            // Hour rows
             foreach (var hour in hours)
             {
                 sb.Append("<div class='tg-row'>");
@@ -272,20 +246,6 @@ namespace UniversitySystem
             return val.ToString();
         }
 
-        // ── Demo data (shown when timetable table is empty) ───────────────
-        private List<ScheduleRow> GetDemoSchedules()
-        {
-            return new List<ScheduleRow>
-            {
-                new ScheduleRow{CourseCode="EEC1001", CourseName="English Enhancement Course",        Day="MON",StartTime="8:00", EndTime="10:00",Venue="DK1",  Color="#C0001D"},
-                new ScheduleRow{CourseCode="IBM3201M",CourseName="Data Mining & Predictive Analytics",Day="TUE",StartTime="10:00",EndTime="12:00",Venue="Lab A",Color="#0066CC"},
-                new ScheduleRow{CourseCode="IBM3204M",CourseName="Cloud Computing Architecture",      Day="WED",StartTime="14:00",EndTime="16:00",Venue="DK3",  Color="#1A7A47"},
-                new ScheduleRow{CourseCode="NET3203M",CourseName="Cybersecurity",                     Day="THU",StartTime="9:00", EndTime="11:00",Venue="Lab B",Color="#8B5CF6"},
-                new ScheduleRow{CourseCode="PRG3204M",CourseName="Web Application Development",       Day="FRI",StartTime="13:00",EndTime="15:00",Venue="Lab C",Color="#D97706"},
-                new ScheduleRow{CourseCode="EEC1001", CourseName="English Enhancement Course",        Day="WED",StartTime="10:00",EndTime="12:00",Venue="DK1",  Color="#C0001D"},
-            };
-        }
-
         private static bool IsConnErr(SqlException ex) =>
             ex.Number == -2 || ex.Number == 2 || ex.Number == 53 ||
             ex.Message.IndexOf("timeout", StringComparison.OrdinalIgnoreCase) >= 0;
@@ -298,7 +258,6 @@ namespace UniversitySystem
 
         private void ShowError(string msg) { lblError.Text = msg; lblError.Visible = true; }
 
-        // View models
         public class CourseRow
         {
             public string CourseCode { get; set; }

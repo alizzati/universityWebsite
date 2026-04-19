@@ -1,15 +1,7 @@
-﻿// ================================================================
-//  OnlineEnrollment.aspx.cs
-//  FLOW: Student checks multiple courses → clicks PROCEED TO PAYMENT
-//        → all selected courses inserted as 'Pending Payment'
-//        → redirect to OnlinePayment.aspx with course list in query string
-//  Namespace: UniversitySystem | Session: "StudentId"
-// ================================================================
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Data.SqlClient;
-using System.Text;
 using System.Web.UI;
 using System.Web.UI.WebControls;
 
@@ -37,21 +29,24 @@ namespace UniversitySystem
             }
         }
 
-        // ── Load all courses with enrollment status ───────────────────────
         private void LoadCourses()
         {
             const string sql =
-                "SELECT c.course_id, c.course_name, " +
-                "       ISNULL(c.credits, 3)        AS credits, " +
-                "       ISNULL(l.lecture_name, '—') AS lecture_name, " +
-                "       ISNULL(c.class_room,  '—')  AS class_room, " +
-                "       ISNULL(e.enrol_status, 'None') AS enrol_status " +
-                "FROM   course c " +
-                "LEFT   JOIN lecture    l ON l.lecture_id = c.lecture_id " +
-                "LEFT   JOIN enrollment e ON CAST(e.course_id AS VARCHAR(20)) = c.course_id " +
-                "                        AND e.student_id = @sid " +
-                "                        AND e.enrol_status IN ('Active','Pending Payment') " +
-                "ORDER  BY c.course_id";
+                "SELECT " +
+                "    c.course_id, c.course_name, " +
+                "    ISNULL(c.credits, 3)        AS credits, " +
+                "    ISNULL(l.lecture_name, '—') AS lecture_name, " +
+                "    ISNULL(c.class_room,  '—')  AS class_room, " +
+                "    ISNULL((" +
+                "        SELECT TOP 1 enrol_status " +
+                "        FROM enrollment e " +
+                "        WHERE e.student_id = @sid " +
+                "          AND CAST(e.course_id AS VARCHAR(20)) = c.course_id " +
+                "        ORDER BY enrollment_id DESC" +
+                "    ), 'None') AS enrol_status " +
+                "FROM course c " +
+                "LEFT JOIN lecture l ON l.lecture_id = c.lecture_id " +
+                "ORDER BY c.course_id";
 
             var list = new List<CourseItem>();
             try
@@ -71,7 +66,7 @@ namespace UniversitySystem
                                 Credits = Convert.ToInt32(dr["credits"]),
                                 LectureName = dr["lecture_name"].ToString(),
                                 ClassRoom = dr["class_room"].ToString(),
-                                EnrolStatus = dr["enrol_status"].ToString()
+                                EnrolStatus = NormaliseStatus(dr["enrol_status"].ToString())
                             });
                 }
             }
@@ -83,13 +78,20 @@ namespace UniversitySystem
             rptCourses.DataBind();
         }
 
+        private static string NormaliseStatus(string dbStatus)
+        {
+            if (dbStatus == "Active") return "Active";
+            if (dbStatus == "Pending Payment") return "Pending Payment";
+            return "None";
+        }
+
         private void LoadCreditHours()
         {
             const string sql =
                 "SELECT ISNULL(SUM(c.credits), 0) " +
-                "FROM   enrollment e " +
-                "JOIN   course c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
-                "WHERE  e.student_id = @sid AND e.enrol_status = 'Active'";
+                "FROM enrollment e " +
+                "JOIN course c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
+                "WHERE e.student_id = @sid AND e.enrol_status = 'Active'";
             try
             {
                 using (var con = new SqlConnection(ConnStr))
@@ -97,106 +99,81 @@ namespace UniversitySystem
                 {
                     cmd.Parameters.AddWithValue("@sid", StudentId);
                     con.Open();
-                    lblCreditHours.Text = cmd.ExecuteScalar().ToString();
+                    lblCreditHours.Text = cmd.ExecuteScalar()?.ToString() ?? "0";
                 }
             }
             catch { lblCreditHours.Text = "0"; }
         }
 
-        // ── PROCEED TO PAYMENT button ─────────────────────────────────────
-        // Reads which checkboxes are ticked in the Repeater
         protected void btnProceedPayment_Click(object sender, EventArgs e)
         {
-            var selectedCourseIds = new List<string>();
+            var selected = new List<string>();
 
-            // Walk through Repeater items and find checked checkboxes
             foreach (RepeaterItem item in rptCourses.Items)
             {
                 var chk = item.FindControl("chkEnrol") as CheckBox;
-                if (chk != null && chk.Checked)
-                {
-                    var hid = item.FindControl("hidCourseId") as HiddenField;
-                    if (hid != null && !string.IsNullOrEmpty(hid.Value))
-                        selectedCourseIds.Add(hid.Value);
-                }
+                if (chk == null || !chk.Checked) continue;
+                var hid = item.FindControl("hidCourseId") as HiddenField;
+                if (hid != null && !string.IsNullOrEmpty(hid.Value))
+                    selected.Add(hid.Value);
             }
 
-            if (selectedCourseIds.Count == 0)
+            if (selected.Count == 0)
             {
                 ShowError("Please select at least one course to enrol.");
                 LoadCourses();
                 return;
             }
 
-            // Insert each selected course as 'Pending Payment'
             var enrolled = new List<string>();
             try
             {
                 using (var con = new SqlConnection(ConnStr))
                 {
                     con.Open();
-                    foreach (string courseId in selectedCourseIds)
+                    foreach (string courseId in selected)
                     {
-                        // Already enrolled?
                         using (var c = new SqlCommand(
                             "SELECT COUNT(*) FROM enrollment " +
-                            "WHERE student_id = @sid " +
-                            "  AND CAST(course_id AS VARCHAR(20)) = @cid " +
+                            "WHERE student_id=@sid AND CAST(course_id AS VARCHAR(20))=@cid " +
                             "  AND enrol_status IN ('Active','Pending Payment')", con))
                         {
                             c.Parameters.AddWithValue("@sid", StudentId);
                             c.Parameters.AddWithValue("@cid", courseId);
-                            if ((int)c.ExecuteScalar() > 0) continue; // skip duplicates
+                            if ((int)c.ExecuteScalar() > 0) continue;
                         }
 
-                        // Get INT course_id via row number
                         int courseIntId = 0;
                         using (var c = new SqlCommand(
                             "SELECT COUNT(*) FROM course c2 WHERE c2.course_id <= @cid", con))
                         {
                             c.Parameters.AddWithValue("@cid", courseId);
-                            try { courseIntId = (int)c.ExecuteScalar(); }
-                            catch { courseIntId = 1; }
+                            try { courseIntId = (int)c.ExecuteScalar(); } catch { courseIntId = 1; }
                         }
 
-                        // INSERT enrollment as 'Pending Payment'
-                        bool inserted = false;
-                        foreach (var col in new[] { "enroll_data", "enrol_data" })
+                        using (var cmd = new SqlCommand(
+                            "INSERT INTO enrollment(student_id, course_id, enrol_data, enrol_status, is_completed) " +
+                            "VALUES(@sid, @cid, GETDATE(), 'Pending Payment', 0)", con))
                         {
-                            try
-                            {
-                                string ins =
-                                    "INSERT INTO enrollment(student_id,course_id," + col + ",enrol_status,is_completed) " +
-                                    "VALUES(@sid,@cid,GETDATE(),'Pending Payment',0)";
-                                using (var cmd = new SqlCommand(ins, con))
-                                {
-                                    cmd.Parameters.AddWithValue("@sid", StudentId);
-                                    cmd.Parameters.AddWithValue("@cid", courseIntId);
-                                    cmd.ExecuteNonQuery();
-                                    inserted = true;
-                                    break;
-                                }
-                            }
-                            catch (SqlException sex) when (sex.Number == 207) { }
+                            cmd.Parameters.AddWithValue("@sid", StudentId);
+                            cmd.Parameters.AddWithValue("@cid", courseIntId);
+                            cmd.ExecuteNonQuery();
                         }
 
-                        if (inserted)
+                        enrolled.Add(courseId);
+
+                        try
                         {
-                            enrolled.Add(courseId);
-                            // Record in add_drop_history (non-critical)
-                            try
+                            using (var cmd = new SqlCommand(
+                                "INSERT INTO add_drop_history(student_id, course_id, action_type, action_date) " +
+                                "VALUES(@sid, @cid, 'Add', CAST(GETDATE() AS DATE))", con))
                             {
-                                using (var cmd = new SqlCommand(
-                                    "INSERT INTO add_drop_history(student_id,course_id,action_type,action_date) " +
-                                    "VALUES(@sid,@cid,'Add',CAST(GETDATE() AS DATE))", con))
-                                {
-                                    cmd.Parameters.AddWithValue("@sid", StudentId);
-                                    cmd.Parameters.AddWithValue("@cid", courseIntId);
-                                    cmd.ExecuteNonQuery();
-                                }
+                                cmd.Parameters.AddWithValue("@sid", StudentId);
+                                cmd.Parameters.AddWithValue("@cid", courseIntId);
+                                cmd.ExecuteNonQuery();
                             }
-                            catch { }
                         }
+                        catch { }
                     }
                 }
             }
@@ -210,7 +187,6 @@ namespace UniversitySystem
                 return;
             }
 
-            // Redirect to payment page with all enrolled course IDs
             string courses = string.Join(",", enrolled);
             Response.Redirect("~/OnlinePayment.aspx?courses=" + Server.UrlEncode(courses), false);
             Context.ApplicationInstance.CompleteRequest();
