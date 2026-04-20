@@ -46,16 +46,16 @@ namespace UniversitySystem
                     lblStatementId.Text = DateTime.Now.ToString("yyyyMMdd") + "-" + studentId.ToString("D5");
                     lblStatementDate.Text = DateTime.Now.ToString("dd MMMM yyyy");
 
-                    // Enrolled courses — FIX: CAST course_id for JOIN
+                    // Enrolled courses
                     const string courseQuery =
-                        "SELECT c.course_id   AS course_code, " +
+                        "SELECT c.course_code, " +
                         "       c.course_name, " +
                         "       ISNULL(c.credits, 0) AS credits, " +
                         "       (ISNULL(c.credits, 0) * 150) AS amount " +
                         "FROM   enrollment e " +
-                        "JOIN   course c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
+                        "JOIN   course c ON c.course_id = e.course_id " +
                         "WHERE  e.student_id = @sid AND e.enrol_status = 'Active' " +
-                        "ORDER  BY c.course_id";
+                        "ORDER  BY c.course_code";
 
                     using (var cmd = new SqlCommand(courseQuery, conn))
                     {
@@ -67,16 +67,17 @@ namespace UniversitySystem
                         gvCourses.DataBind();
                     }
 
-                    // Payment history — FIX: include bank_name, formatted reference
+                    // Payment history
                     const string payQuery =
-                        "SELECT created_at AS payment_date, " +
-                        "       'INV-' + RIGHT('0000' + CAST(payment_id AS VARCHAR), 4) AS reference_no, " +
-                        "       'Course Fee — ' + ISNULL(course_id, '') AS description, " +
-                        "       ISNULL(bank_name, 'Online') AS bank_name, " +
-                        "       amount, status " +
-                        "FROM   payment " +
-                        "WHERE  student_id = @sid " +
-                        "ORDER  BY created_at DESC";
+                        "SELECT p.created_at AS payment_date, " +
+                        "       'INV-' + RIGHT('0000' + CAST(p.payment_id AS VARCHAR), 4) AS reference_no, " +
+                        "       'Course Fee — ' + ISNULL(c.course_code, ISNULL(p.course_id, '')) AS description, " +
+                        "       ISNULL(p.bank_name, 'Online') AS bank_name, " +
+                        "       p.amount, p.status " +
+                        "FROM   payment p " +
+                        "LEFT JOIN course c ON c.course_id = p.course_id " +
+                        "WHERE  p.student_id = @sid " +
+                        "ORDER  BY p.created_at DESC";
 
                     using (var cmd = new SqlCommand(payQuery, conn))
                     {
@@ -93,7 +94,7 @@ namespace UniversitySystem
                         "SELECT " +
                         "    ISNULL((SELECT SUM(ISNULL(c2.credits,0)*150) " +
                         "            FROM enrollment e2 " +
-                        "            JOIN course c2 ON c2.course_id = CAST(e2.course_id AS VARCHAR(20)) " +
+                        "            JOIN course c2 ON c2.course_id = e2.course_id " +
                         "            WHERE e2.student_id=@sid AND e2.enrol_status='Active'), 0) " +
                         "  - ISNULL((SELECT SUM(amount) FROM payment " +
                         "            WHERE student_id=@sid AND status='Success'), 0) " +

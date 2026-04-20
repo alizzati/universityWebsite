@@ -96,6 +96,15 @@ namespace UniversitySystem
         protected global::System.Web.UI.WebControls.GridView gvInvoice;
 
         /// <summary>
+        /// lblStudentNamePrint control.
+        /// </summary>
+        /// <remarks>
+        /// Auto-generated field.
+        /// To modify move field declaration from designer file to code-behind file.
+        /// </remarks>
+        protected global::System.Web.UI.WebControls.Label lblStudentNamePrint;
+
+        /// <summary>
         /// lblPeriodPrint control.
         /// </summary>
         /// <remarks>
@@ -105,12 +114,12 @@ namespace UniversitySystem
         protected global::System.Web.UI.WebControls.Label lblPeriodPrint;
 
         /// <summary>
-        /// lblStudentNamePrint control.
+        /// hdnTotalAmt control.
         /// </summary>
         /// <remarks>
         /// Auto-generated field.
         /// To modify move field declaration from designer file to code-behind file.
         /// </remarks>
-        protected global::System.Web.UI.WebControls.Label lblStudentNamePrint;
+        protected global::System.Web.UI.WebControls.Label hdnTotalAmt;
     }
 }

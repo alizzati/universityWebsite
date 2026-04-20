@@ -181,7 +181,7 @@
 </form>
 <script src="~/Scripts/NavBar.js"></script>
 <script>
-    (function () { var l = document.getElementById('pageLoader'); if (!l) return; window.addEventListener('load', function () { setTimeout(function () { l.classList.add('hidden'); setTimeout(function () { l.style.display = 'none'; }, 400); }, 400); }); })();
+    (function(){var l=document.getElementById('pageLoader');if(!l)return;window.addEventListener('load',function(){setTimeout(function(){l.classList.add('hidden');setTimeout(function(){l.style.display='none';},400);},400);});})();
 
     function printInvoice() {
         // ── Collect data from the on-screen GridView ──────────────────────
@@ -189,9 +189,9 @@
         if (!tbl) { alert('No invoice data to print.'); return; }
 
         var studentName = (document.getElementById('hdnStudentName') || {}).innerText || '';
-        var period = (document.getElementById('hdnPeriod') || {}).innerText || '';
-        var today = new Date();
-        var dateStr = today.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+        var period      = (document.getElementById('hdnPeriod')      || {}).innerText || '';
+        var today       = new Date();
+        var dateStr     = today.toLocaleDateString('en-GB', {day:'2-digit', month:'long', year:'numeric'});
 
         // Build rows from the GridView tbody
         var rows = tbl.querySelectorAll('tbody tr');
@@ -201,22 +201,22 @@
         var invoiceDate = '';
         var statusAll = 'Success';
 
-        rows.forEach(function (tr) {
+        rows.forEach(function(tr) {
             var cells = tr.querySelectorAll('td');
             if (cells.length < 7) return;
 
-            var invNo = cells[0].innerText.trim();
-            var date = cells[2].innerText.trim();
-            var code = cells[3].innerText.trim();
-            var desc = cells[4].innerText.trim();
-            var bank = cells[5].innerText.trim();
-            var amtText = cells[6].innerText.trim().replace('RM', '').replace(/,/g, '').trim();
-            var status = cells[7] ? cells[7].innerText.trim() : 'Success';
-            var amt = parseFloat(amtText) || 0;
+            var invNo   = cells[0].innerText.trim();
+            var date    = cells[2].innerText.trim();
+            var code    = cells[3].innerText.trim();
+            var desc    = cells[4].innerText.trim();
+            var bank    = cells[5].innerText.trim();
+            var amtText = cells[6].innerText.trim().replace('RM','').replace(/,/g,'').trim();
+            var status  = cells[7] ? cells[7].innerText.trim() : 'Success';
+            var amt     = parseFloat(amtText) || 0;
 
             grandTotal += amt;
             if (!paymentMethod && bank) paymentMethod = bank;
-            if (!invoiceDate && date) invoiceDate = date;
+            if (!invoiceDate  && date) invoiceDate = date;
             if (status.toLowerCase() !== 'success') statusAll = status;
 
             var statusClass = status.toLowerCase() === 'success'
@@ -232,7 +232,7 @@
                 '<td style="padding:10px 12px;border-bottom:1px solid #f0f0ec;font-size:12px;">' + bank + '</td>' +
                 '<td style="padding:10px 12px;border-bottom:1px solid #f0f0ec;text-align:right;font-weight:700;font-size:12px;">RM ' + amt.toFixed(2) + '</td>' +
                 '<td style="padding:10px 12px;border-bottom:1px solid #f0f0ec;text-align:center;">' +
-                '<span style="display:inline-block;padding:3px 10px;border-radius:50px;font-size:11px;font-weight:700;letter-spacing:.3px;' + statusClass + '">' + status + '</span>' +
+                    '<span style="display:inline-block;padding:3px 10px;border-radius:50px;font-size:11px;font-weight:700;letter-spacing:.3px;' + statusClass + '">' + status + '</span>' +
                 '</td>' +
                 '</tr>';
         });
@@ -349,7 +349,7 @@
         pw.document.write(html);
         pw.document.close();
         pw.focus();
-        setTimeout(function () { pw.print(); }, 700);
+        setTimeout(function() { pw.print(); }, 700);
     }
 </script>
 </body>

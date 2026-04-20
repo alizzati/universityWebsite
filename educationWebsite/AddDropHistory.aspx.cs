@@ -1,19 +1,4 @@
-﻿// ================================================================
-//  AddDropHistory.aspx.cs — FIXED
-//
-//  History shows empty because:
-//  1. add_drop_history.course_id stores INT (row-number) not the
-//     actual course varchar ID, so JOIN to course table fails.
-//
-//  FIX: UNION approach
-//  - Part 1: Real add_drop_history rows (with CAST join fix)
-//  - Part 2: Synthetic "Add" rows from enrollment+payment when
-//    history is empty (ensures history always shows data)
-//
-//  DROP history: written by AddDrop.aspx.cs btnDrop_Click ✓
-//  ADD history:  written by AddDrop/OnlineEnrollment btnAdd ✓
-// ================================================================
-using System;
+﻿using System;
 using System.Configuration;
 using System.Data;
 using System.Data.SqlClient;
@@ -35,20 +20,33 @@ namespace UniversitySystem
         {
             if (Session["StudentId"] == null)
             { Response.Redirect("~/Login.aspx"); return; }
-            if (!IsPostBack) { LoadStatistics(); LoadHistory(); }
+
+            if (!IsPostBack)
+            {
+                LoadStatistics();
+                LoadHistory();
+            }
         }
 
         private void LoadStatistics()
         {
+            const string sqlHist =
+                "SELECT " +
+                "  SUM(CASE WHEN action_type='Add'  THEN 1 ELSE 0 END) AS adds, " +
+                "  SUM(CASE WHEN action_type='Drop' THEN 1 ELSE 0 END) AS drops, " +
+                "  COUNT(*) AS total " +
+                "FROM add_drop_history WHERE student_id = @sid";
+
+            const string sqlEnrol =
+                "SELECT COUNT(*) FROM enrollment " +
+                "WHERE student_id = @sid AND enrol_status = 'Active'";
+
             try
             {
                 using (var con = new SqlConnection(ConnStr))
                 {
                     con.Open();
-                    using (var cmd = new SqlCommand(
-                        "SELECT SUM(CASE WHEN action_type='Add' THEN 1 ELSE 0 END) AS adds, " +
-                        "SUM(CASE WHEN action_type='Drop' THEN 1 ELSE 0 END) AS drops, COUNT(*) AS total " +
-                        "FROM add_drop_history WHERE student_id=@sid", con))
+                    using (var cmd = new SqlCommand(sqlHist, con))
                     {
                         cmd.Parameters.AddWithValue("@sid", StudentId);
                         using (var dr = cmd.ExecuteReader())
@@ -59,8 +57,7 @@ namespace UniversitySystem
                                 lblTotalActions.Text = dr["total"] == DBNull.Value ? "0" : dr["total"].ToString();
                             }
                     }
-                    using (var cmd = new SqlCommand(
-                        "SELECT COUNT(*) FROM enrollment WHERE student_id=@sid AND enrol_status='Active'", con))
+                    using (var cmd = new SqlCommand(sqlEnrol, con))
                     {
                         cmd.Parameters.AddWithValue("@sid", StudentId);
                         lblCurrentEnrollments.Text = cmd.ExecuteScalar()?.ToString() ?? "0";
@@ -72,33 +69,46 @@ namespace UniversitySystem
 
         private void LoadHistory()
         {
-            string actionFilter = !string.IsNullOrEmpty(ddlActionType.SelectedValue)
-                ? " AND h.action_type=@action" : "";
-            string dateFilter = !string.IsNullOrEmpty(ddlDateRange.SelectedValue)
-                ? " AND h.action_date>=@cutoff" : "";
+            string actionFilter = "";
+            string dateFilter = "";
 
-            // Primary query: real add_drop_history rows
-            string sqlHist =
-                "SELECT h.action_date AS ActionDate, h.action_type AS Action, " +
-                "ISNULL(c.course_id, CAST(h.course_id AS VARCHAR(20))) AS CourseCode, " +
-                "ISNULL(c.course_name,'Unknown') AS CourseName, ISNULL(c.credits,0) AS CreditHours " +
+            if (!string.IsNullOrEmpty(ddlActionType.SelectedValue))
+                actionFilter = " AND h.action_type = @action";
+            if (!string.IsNullOrEmpty(ddlDateRange.SelectedValue))
+                dateFilter = " AND h.action_date >= @cutoff";
+
+            // add_drop_history.course_id = INT FK → course.course_id INT
+            // JOIN langsung, tidak perlu CAST
+            string sql =
+                "SELECT " +
+                "    h.action_date AS ActionDate, " +
+                "    h.action_type AS Action, " +
+                "    ISNULL(c.course_code, CAST(c.course_id AS VARCHAR(20))) AS CourseCode, " +
+                "    ISNULL(c.course_name, 'Unknown') AS CourseName, " +
+                "    ISNULL(c.credits, 0) AS CreditHours " +
                 "FROM add_drop_history h " +
-                "LEFT JOIN course c ON c.course_id = CAST(h.course_id AS VARCHAR(20)) " +
-                "WHERE h.student_id=@sid" + actionFilter + dateFilter +
+                "LEFT JOIN course c ON c.course_id = h.course_id " +
+                "WHERE h.student_id = @sid" + actionFilter + dateFilter +
                 " ORDER BY h.action_date DESC";
 
             var dt = new DataTable();
             try
             {
                 using (var con = new SqlConnection(ConnStr))
-                using (var cmd = new SqlCommand(sqlHist, con))
+                using (var cmd = new SqlCommand(sql, con))
                 {
                     cmd.CommandTimeout = 15;
                     cmd.Parameters.AddWithValue("@sid", StudentId);
+
                     if (!string.IsNullOrEmpty(ddlActionType.SelectedValue))
                         cmd.Parameters.AddWithValue("@action", ddlActionType.SelectedValue);
+
                     if (!string.IsNullOrEmpty(ddlDateRange.SelectedValue))
-                        cmd.Parameters.AddWithValue("@cutoff", DateTime.Now.AddDays(-Convert.ToInt32(ddlDateRange.SelectedValue)));
+                    {
+                        int days = Convert.ToInt32(ddlDateRange.SelectedValue);
+                        cmd.Parameters.AddWithValue("@cutoff", DateTime.Now.AddDays(-days));
+                    }
+
                     con.Open();
                     new SqlDataAdapter(cmd).Fill(dt);
                 }
@@ -107,63 +117,17 @@ namespace UniversitySystem
             { Response.Redirect("~/Login.aspx?reason=timeout"); return; }
             catch { }
 
-            // Fallback: if no real history rows exist, synthesise from enrollment+payment
-            if (dt.Rows.Count == 0)
-            {
-                // Only show Add-type fallback (can't synthesise Drop reliably)
-                bool showAdd = string.IsNullOrEmpty(ddlActionType.SelectedValue) ||
-                               ddlActionType.SelectedValue == "Add";
-
-                if (showAdd)
-                {
-                    try
-                    {
-                        // Try enrol_data column (preferred)
-                        LoadFallbackHistory(dt, "enrol_data");
-                    }
-                    catch { }
-
-                    if (dt.Rows.Count == 0)
-                    {
-                        try { LoadFallbackHistory(dt, "enroll_data"); }
-                        catch { }
-                    }
-                }
-            }
-
-            if (dt.Rows.Count > 0)
-            {
-                dt.DefaultView.Sort = "ActionDate DESC";
-                dt = dt.DefaultView.ToTable();
-            }
-
             gvHistory.DataSource = dt;
             gvHistory.DataBind();
-        }
-
-        private void LoadFallbackHistory(DataTable dt, string dateCol)
-        {
-            string sql =
-                "SELECT CAST(ISNULL(p.created_at, e." + dateCol + ") AS DATE) AS ActionDate, " +
-                "'Add' AS Action, c.course_id AS CourseCode, c.course_name AS CourseName, ISNULL(c.credits,0) AS CreditHours " +
-                "FROM enrollment e " +
-                "JOIN course c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
-                "LEFT JOIN payment p ON p.student_id=e.student_id AND p.course_id=c.course_id AND p.status='Success' " +
-                "WHERE e.student_id=@sid AND e.enrol_status='Active'";
-
-            using (var con2 = new SqlConnection(ConnStr))
-            using (var cmd2 = new SqlCommand(sql, con2))
-            {
-                cmd2.Parameters.AddWithValue("@sid", StudentId);
-                con2.Open();
-                new SqlDataAdapter(cmd2).Fill(dt);
-            }
         }
 
         protected void ddlFilter_Changed(object sender, EventArgs e) => LoadHistory();
 
         protected void gvHistory_PageIndexChanging(object sender, GridViewPageEventArgs e)
-        { gvHistory.PageIndex = e.NewPageIndex; LoadHistory(); }
+        {
+            gvHistory.PageIndex = e.NewPageIndex;
+            LoadHistory();
+        }
 
         protected void btnExportPDF_Click(object sender, EventArgs e)
         {
@@ -173,24 +137,32 @@ namespace UniversitySystem
             sb.AppendLine("Student ID : " + StudentId);
             sb.AppendLine("Generated  : " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
             sb.AppendLine();
+
+            const string sql =
+                "SELECT h.action_date, h.action_type, " +
+                "       ISNULL(c.course_code, CAST(c.course_id AS VARCHAR(20))) AS CourseCode, " +
+                "       ISNULL(c.course_name, 'Unknown') AS CourseName " +
+                "FROM add_drop_history h " +
+                "LEFT JOIN course c ON c.course_id = h.course_id " +
+                "WHERE h.student_id = @sid ORDER BY h.action_date DESC";
+
             try
             {
                 using (var con = new SqlConnection(ConnStr))
-                using (var cmd = new SqlCommand(
-                    "SELECT h.action_date, h.action_type, ISNULL(c.course_id, CAST(h.course_id AS VARCHAR)) AS CourseCode, ISNULL(c.course_name,'Unknown') AS CourseName " +
-                    "FROM add_drop_history h LEFT JOIN course c ON c.course_id=CAST(h.course_id AS VARCHAR(20)) " +
-                    "WHERE h.student_id=@sid ORDER BY h.action_date DESC", con))
+                using (var cmd = new SqlCommand(sql, con))
                 {
                     cmd.Parameters.AddWithValue("@sid", StudentId);
                     con.Open();
                     using (var dr = cmd.ExecuteReader())
                         while (dr.Read())
-                            sb.AppendLine(Convert.ToDateTime(dr["action_date"]).ToString("yyyy-MM-dd") + " | " +
+                            sb.AppendLine(
+                                Convert.ToDateTime(dr["action_date"]).ToString("yyyy-MM-dd") + " | " +
                                 dr["action_type"].ToString().PadRight(4) + " | " +
                                 dr["CourseCode"] + " — " + dr["CourseName"]);
                 }
             }
             catch { }
+
             Response.Clear();
             Response.ContentType = "text/plain";
             Response.AddHeader("Content-Disposition", "attachment; filename=AddDropHistory.txt");
@@ -202,23 +174,34 @@ namespace UniversitySystem
         {
             var sb = new StringBuilder();
             sb.AppendLine("Date,Action,Course Code,Course Name,Credits");
+
+            const string sql =
+                "SELECT h.action_date, h.action_type, " +
+                "       ISNULL(c.course_code, CAST(c.course_id AS VARCHAR(20))) AS CourseCode, " +
+                "       ISNULL(c.course_name, 'Unknown') AS CourseName, " +
+                "       ISNULL(c.credits, 0) AS Credits " +
+                "FROM add_drop_history h " +
+                "LEFT JOIN course c ON c.course_id = h.course_id " +
+                "WHERE h.student_id = @sid ORDER BY h.action_date DESC";
+
             try
             {
                 using (var con = new SqlConnection(ConnStr))
-                using (var cmd = new SqlCommand(
-                    "SELECT h.action_date, h.action_type, ISNULL(c.course_id, CAST(h.course_id AS VARCHAR)) AS CourseCode, ISNULL(c.course_name,'Unknown') AS CourseName, ISNULL(c.credits,0) AS Credits " +
-                    "FROM add_drop_history h LEFT JOIN course c ON c.course_id=CAST(h.course_id AS VARCHAR(20)) " +
-                    "WHERE h.student_id=@sid ORDER BY h.action_date DESC", con))
+                using (var cmd = new SqlCommand(sql, con))
                 {
                     cmd.Parameters.AddWithValue("@sid", StudentId);
                     con.Open();
                     using (var dr = cmd.ExecuteReader())
                         while (dr.Read())
-                            sb.AppendLine(Convert.ToDateTime(dr["action_date"]).ToString("yyyy-MM-dd") + "," +
-                                dr["action_type"] + "," + dr["CourseCode"] + ",\"" + dr["CourseName"] + "\"," + dr["Credits"]);
+                            sb.AppendLine(
+                                Convert.ToDateTime(dr["action_date"]).ToString("yyyy-MM-dd") + "," +
+                                dr["action_type"] + "," +
+                                dr["CourseCode"] + ",\"" + dr["CourseName"] + "\"," +
+                                dr["Credits"]);
                 }
             }
             catch { }
+
             Response.Clear();
             Response.ContentType = "application/vnd.ms-excel";
             Response.AddHeader("Content-Disposition", "attachment; filename=AddDropHistory.csv");

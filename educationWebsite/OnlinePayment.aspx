@@ -280,7 +280,7 @@
     </div>
 
 </form>
-<script src="~/Scripts/NavBar.js"></script>
+<script src="Scripts/NavBar.js"></script>
 <script>
     // ── Bank card selection ──────────────────────────────────────────────
     var bMap = {

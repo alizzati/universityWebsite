@@ -1,30 +1,4 @@
-﻿// ================================================================
-//  OnlinePayment.aspx.cs — FULLY FIXED
-//
-//  BUG 1 — "Loading stuck after confirm":
-//    Root cause: JS onclick hid pnlPaymentForm and showed pnlProcessing
-//    BEFORE the postback completed. When the server response arrived,
-//    the ASP.NET page rendered with pnlSuccess=true but then the
-//    window.load event fired the pageLoader animation again, which
-//    covered the success panel.
-//
-//    Fix: Removed JS panel manipulation. Added hfPaymentDone HiddenField.
-//    Server sets it to "1" on success. JS reads it on DOMContentLoaded
-//    (not window.load) and hides the processing overlay immediately.
-//
-//  BUG 2 — ViewState["PaymentCourses"] empty on postback:
-//    Root cause: ViewState was only written inside LoadCourseItems()
-//    which only runs on !IsPostBack. On postback, the query string is
-//    gone, so the fallback "string.Join(',', CourseIds)" returns "".
-//
-//    Fix: Save ViewState["PaymentCourses"] on Page_Load (not IsPostBack)
-//    using CourseIds from query string.
-//
-//  BUG 3 — Enrollment status not synced:
-//    Fix: After payment INSERT, UPDATE enrollment SET enrol_status='Active'
-//    for both 'Pending Payment' and 'Pending' (covers edge cases).
-// ================================================================
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Data.SqlClient;
@@ -43,13 +17,20 @@ namespace UniversitySystem
         private int StudentId =>
             Session["StudentId"] != null ? Convert.ToInt32(Session["StudentId"]) : 0;
 
-        private string[] CourseIds
+        // CourseIds dari QueryString — sekarang INT
+        private int[] CourseIds
         {
             get
             {
                 string raw = Request.QueryString["courses"];
-                if (string.IsNullOrEmpty(raw)) return new string[0];
-                return raw.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+                if (string.IsNullOrEmpty(raw)) return new int[0];
+                var result = new List<int>();
+                foreach (string s in raw.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    int n;
+                    if (int.TryParse(s.Trim(), out n)) result.Add(n);
+                }
+                return result.ToArray();
             }
         }
 
@@ -58,9 +39,7 @@ namespace UniversitySystem
             if (Session["StudentId"] == null)
             { Response.Redirect("~/Login.aspx?reason=session"); return; }
 
-            // FIX: Always capture CourseIds from query string into ViewState
-            // so it's available when btnSubmit_Click fires (postback loses query string)
-            string[] qs = CourseIds;
+            int[] qs = CourseIds;
             if (qs.Length > 0)
                 ViewState["PaymentCourses"] = string.Join(",", qs);
 
@@ -72,18 +51,26 @@ namespace UniversitySystem
                 pnlSuccess.Visible = false;
 
                 LoadCourseItems();
-                SetupVA();
+                SetupVA("Maybank2u");
             }
         }
 
-        // ── Load course fee table ─────────────────────────────────────────
+        private int[] GetCourseIdsFromViewState()
+        {
+            string s = ViewState["PaymentCourses"]?.ToString() ?? "";
+            if (string.IsNullOrEmpty(s)) return new int[0];
+            var result = new List<int>();
+            foreach (string part in s.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                int n;
+                if (int.TryParse(part.Trim(), out n)) result.Add(n);
+            }
+            return result.ToArray();
+        }
+
         private void LoadCourseItems()
         {
-            // Use ViewState first (already saved above), then query string
-            string coursesStr = ViewState["PaymentCourses"]?.ToString()
-                             ?? string.Join(",", CourseIds);
-            string[] ids = coursesStr.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
-
+            int[] ids = GetCourseIdsFromViewState();
             if (ids.Length == 0) { LoadAllPendingCourses(); return; }
 
             var list = new List<CourseItem>();
@@ -94,27 +81,35 @@ namespace UniversitySystem
                 using (var con = new SqlConnection(ConnStr))
                 {
                     con.Open();
-                    foreach (string cid in ids)
+                    foreach (int cid in ids)
                     {
                         using (var cmd = new SqlCommand(
-                            "SELECT course_id, course_name, ISNULL(credits,3) AS credits " +
+                            "SELECT course_id, " +
+                            "       ISNULL(course_code, CAST(course_id AS VARCHAR(20))) AS course_code, " +
+                            "       course_name, " +
+                            "       ISNULL(credits, 3) AS credits, " +
+                            "       ISNULL(fee, ISNULL(credits,3) * " + FeePerCredit + ") AS fee " +
                             "FROM course WHERE course_id = @cid", con))
                         {
-                            cmd.Parameters.AddWithValue("@cid", cid.Trim());
+                            cmd.Parameters.AddWithValue("@cid", cid);
                             using (var dr = cmd.ExecuteReader())
                             {
                                 if (dr.Read())
                                 {
                                     int credits = Convert.ToInt32(dr["credits"]);
-                                    decimal fee = credits * FeePerCredit;
+                                    decimal fee;
+                                    try { fee = Convert.ToDecimal(dr["fee"]); }
+                                    catch { fee = credits * FeePerCredit; }
+
                                     total += fee;
                                     list.Add(new CourseItem
                                     {
-                                        CourseId = dr["course_id"].ToString(),
+                                        CourseId = Convert.ToInt32(dr["course_id"]),
+                                        CourseCode = dr["course_code"].ToString(),
                                         CourseName = dr["course_name"].ToString(),
                                         Credits = credits,
                                         Fee = fee,
-                                        FeeFormatted = "RM " + fee.ToString("N2")
+                                        FeeFormatted = fee.ToString("N2")
                                     });
                                 }
                             }
@@ -138,10 +133,14 @@ namespace UniversitySystem
         private void LoadAllPendingCourses()
         {
             const string sql =
-                "SELECT c.course_id, c.course_name, ISNULL(c.credits,3) AS credits " +
+                "SELECT c.course_id, " +
+                "       ISNULL(c.course_code, CAST(c.course_id AS VARCHAR(20))) AS course_code, " +
+                "       c.course_name, " +
+                "       ISNULL(c.credits, 3) AS credits, " +
+                "       ISNULL(c.fee, ISNULL(c.credits,3) * 150) AS fee " +
                 "FROM enrollment e " +
-                "JOIN course c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
-                "WHERE e.student_id=@sid AND e.enrol_status='Pending Payment' " +
+                "JOIN course c ON c.course_id = e.course_id " +
+                "WHERE e.student_id = @sid AND e.enrol_status = 'Pending Payment' " +
                 "ORDER BY c.course_id";
 
             var list = new List<CourseItem>();
@@ -159,15 +158,19 @@ namespace UniversitySystem
                         while (dr.Read())
                         {
                             int credits = Convert.ToInt32(dr["credits"]);
-                            decimal fee = credits * FeePerCredit;
+                            decimal fee;
+                            try { fee = Convert.ToDecimal(dr["fee"]); }
+                            catch { fee = credits * FeePerCredit; }
+
                             total += fee;
                             list.Add(new CourseItem
                             {
-                                CourseId = dr["course_id"].ToString(),
+                                CourseId = Convert.ToInt32(dr["course_id"]),
+                                CourseCode = dr["course_code"].ToString(),
                                 CourseName = dr["course_name"].ToString(),
                                 Credits = credits,
                                 Fee = fee,
-                                FeeFormatted = "RM " + fee.ToString("N2")
+                                FeeFormatted = fee.ToString("N2")
                             });
                         }
                     }
@@ -187,29 +190,34 @@ namespace UniversitySystem
             rptCourseItems.DataBind();
             lblGrandTotal.Text = total.ToString("N2");
             hfGrandTotal.Value = total.ToString("N2");
-
             ViewState["PaymentTotal"] = total;
-            var cids = new List<string>();
+
+            var cids = new List<int>();
             foreach (var ci in list) cids.Add(ci.CourseId);
             ViewState["PaymentCourses"] = string.Join(",", cids);
         }
 
-        private void SetupVA()
+        private void SetupVA(string bankName)
         {
             pnlVA.Visible = true;
-            lblVABank.Text = "Maybank2u";
-            lblVANumber.Text = GenerateVA(StudentId);
+            lblVABank.Text = bankName;
+            lblVANumber.Text = GenerateVA(StudentId, bankName);
             lblVAAmount.Text = hfGrandTotal.Value;
         }
 
-        private static string GenerateVA(int studentId)
+        private static string GenerateVA(int studentId, string bankName)
         {
-            string sid = studentId.ToString().PadLeft(6, '0');
-            string day = DateTime.Today.DayOfYear.ToString().PadLeft(3, '0');
-            return "1234" + sid + day;
+            string prefix;
+            switch (bankName)
+            {
+                case "CIMB Clicks": prefix = "2234"; break;
+                case "Public Bank": prefix = "3344"; break;
+                case "RHB Online": prefix = "4455"; break;
+                default: prefix = "1234"; break;
+            }
+            return prefix + studentId.ToString().PadLeft(6, '0') + DateTime.Today.DayOfYear.ToString().PadLeft(3, '0');
         }
 
-        // ── CONFIRM PAYMENT ───────────────────────────────────────────────
         protected void btnSubmit_Click(object sender, EventArgs e)
         {
             string bank = rbMaybank.Checked ? "Maybank2u"
@@ -218,34 +226,28 @@ namespace UniversitySystem
                         : rbRhb.Checked ? "RHB Online"
                         : "Maybank2u";
 
-            // FIX: Read from ViewState (query string is gone on postback)
-            decimal total = ViewState["PaymentTotal"] != null
-                                    ? (decimal)ViewState["PaymentTotal"] : 0;
-            string coursesStr = ViewState["PaymentCourses"]?.ToString() ?? "";
+            decimal total = ViewState["PaymentTotal"] != null ? (decimal)ViewState["PaymentTotal"] : 0;
+            int[] courseIds = GetCourseIdsFromViewState();
 
-            string[] courseIds = coursesStr.Split(
-                new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
-
-            // Fallback: if ViewState lost, re-query pending courses for this student
+            // Fallback: reload dari enrollment jika ViewState kosong
             if (courseIds.Length == 0)
             {
                 try
                 {
-                    var tmpList = new List<string>();
+                    var tmp = new List<int>();
                     using (var con2 = new SqlConnection(ConnStr))
                     {
                         con2.Open();
                         using (var c2 = new SqlCommand(
-                            "SELECT CAST(e.course_id AS VARCHAR(20)) " +
-                            "FROM enrollment e WHERE e.student_id=@sid AND e.enrol_status='Pending Payment'",
-                            con2))
+                            "SELECT course_id FROM enrollment " +
+                            "WHERE student_id = @sid AND enrol_status = 'Pending Payment'", con2))
                         {
                             c2.Parameters.AddWithValue("@sid", StudentId);
                             using (var dr = c2.ExecuteReader())
-                                while (dr.Read()) tmpList.Add(dr[0].ToString());
+                                while (dr.Read()) tmp.Add(Convert.ToInt32(dr[0]));
                         }
                     }
-                    courseIds = tmpList.ToArray();
+                    courseIds = tmp.ToArray();
                 }
                 catch { }
             }
@@ -253,15 +255,14 @@ namespace UniversitySystem
             if (courseIds.Length == 0)
             {
                 ShowError("No course data found. Please go back and try again.");
-                // Re-show form so user can retry
                 pnlPaymentForm.Visible = true;
                 pnlSuccess.Visible = false;
                 LoadCourseItems();
-                SetupVA();
+                SetupVA(bank);
                 return;
             }
 
-            // Recalculate total if lost
+            // Hitung total jika ViewState hilang
             if (total <= 0)
             {
                 try
@@ -269,20 +270,21 @@ namespace UniversitySystem
                     using (var con2 = new SqlConnection(ConnStr))
                     {
                         con2.Open();
-                        foreach (string c2 in courseIds)
+                        foreach (int cid2 in courseIds)
                         {
                             using (var cmd2 = new SqlCommand(
-                                "SELECT ISNULL(credits,3) FROM course WHERE course_id=@cid", con2))
+                                "SELECT ISNULL(fee, ISNULL(credits,3) * " + FeePerCredit + ") " +
+                                "FROM course WHERE course_id = @cid", con2))
                             {
-                                cmd2.Parameters.AddWithValue("@cid", c2.Trim());
+                                cmd2.Parameters.AddWithValue("@cid", cid2);
                                 var r = cmd2.ExecuteScalar();
                                 if (r != null && r != DBNull.Value)
-                                    total += Convert.ToInt32(r) * FeePerCredit;
+                                    total += Convert.ToDecimal(r);
                             }
                         }
                     }
                 }
-                catch { total = courseIds.Length * 3 * FeePerCredit; } // last resort estimate
+                catch { total = courseIds.Length * 3 * FeePerCredit; }
             }
 
             var paymentIds = new List<int>();
@@ -296,60 +298,75 @@ namespace UniversitySystem
                     {
                         try
                         {
-                            foreach (string courseId in courseIds)
+                            foreach (int courseId in courseIds)
                             {
-                                string cid = courseId.Trim();
-                                if (string.IsNullOrEmpty(cid)) continue;
-
-                                // Get credits
-                                int credits = 3;
+                                // Hitung fee
+                                decimal amt = 0;
                                 using (var c = new SqlCommand(
-                                    "SELECT ISNULL(credits,3) FROM course WHERE course_id=@cid", con, tx))
+                                    "SELECT ISNULL(fee, ISNULL(credits,3) * " + FeePerCredit + ") " +
+                                    "FROM course WHERE course_id = @cid", con, tx))
                                 {
-                                    c.Parameters.AddWithValue("@cid", cid);
+                                    c.Parameters.AddWithValue("@cid", courseId);
                                     var res = c.ExecuteScalar();
-                                    if (res != null && res != DBNull.Value)
-                                        credits = Convert.ToInt32(res);
+                                    amt = (res != null && res != DBNull.Value)
+                                          ? Convert.ToDecimal(res) : 3 * FeePerCredit;
                                 }
-                                int amt = credits * FeePerCredit;
 
-                                // Skip if already paid
+                                // Cek duplikat payment
+                                // payment.course_id = INT (FK ke course.course_id INT)
                                 using (var c = new SqlCommand(
                                     "SELECT COUNT(*) FROM payment " +
-                                    "WHERE student_id=@sid AND course_id=@cid AND status='Success'",
+                                    "WHERE student_id = @sid AND course_id = @cid AND status = 'Success'",
                                     con, tx))
                                 {
                                     c.Parameters.AddWithValue("@sid", StudentId);
-                                    c.Parameters.AddWithValue("@cid", cid);
+                                    c.Parameters.AddWithValue("@cid", courseId);
                                     if ((int)c.ExecuteScalar() > 0) continue;
                                 }
 
                                 // INSERT payment
+                                // payment_id = IDENTITY → tidak perlu diisi
+                                // course_id  = INT FK
                                 int pid = 0;
                                 using (var cmd = new SqlCommand(
-                                    "INSERT INTO payment(student_id,course_id,bank_name,amount,status,created_at) " +
+                                    "INSERT INTO payment(student_id, course_id, bank_name, amount, status, created_at) " +
                                     "OUTPUT INSERTED.payment_id " +
-                                    "VALUES(@sid,@cid,@bank,@amt,'Success',GETDATE())", con, tx))
+                                    "VALUES(@sid, @cid, @bank, @amt, 'Success', GETDATE())", con, tx))
                                 {
                                     cmd.Parameters.AddWithValue("@sid", StudentId);
-                                    cmd.Parameters.AddWithValue("@cid", cid);
+                                    cmd.Parameters.AddWithValue("@cid", courseId);
                                     cmd.Parameters.AddWithValue("@bank", bank);
                                     cmd.Parameters.AddWithValue("@amt", amt);
                                     pid = (int)cmd.ExecuteScalar();
                                 }
                                 paymentIds.Add(pid);
 
-                                // FIX: UPDATE enrollment → 'Active'
-                                // Covers both 'Pending Payment' and edge-case 'Pending'
+                                // UPDATE enrollment → Active
+                                // enrollment.course_id = INT → compare langsung
                                 using (var cmd = new SqlCommand(
-                                    "UPDATE enrollment SET enrol_status='Active' " +
-                                    "WHERE student_id=@sid " +
-                                    "  AND CAST(course_id AS VARCHAR(20))=@cid " +
-                                    "  AND enrol_status IN ('Pending Payment','Pending')",
-                                    con, tx))
+                                    "UPDATE enrollment " +
+                                    "SET    enrol_status = 'Active' " +
+                                    "WHERE  student_id   = @sid " +
+                                    "  AND  course_id    = @cid " +
+                                    "  AND  enrol_status IN ('Pending Payment','Pending')", con, tx))
                                 {
                                     cmd.Parameters.AddWithValue("@sid", StudentId);
-                                    cmd.Parameters.AddWithValue("@cid", cid);
+                                    cmd.Parameters.AddWithValue("@cid", courseId);
+                                    cmd.ExecuteNonQuery();
+                                }
+
+                                // INSERT add_drop_history
+                                // course_id = INT FK ke course.course_id
+                                using (var cmd = new SqlCommand(
+                                    "IF NOT EXISTS (" +
+                                    "  SELECT 1 FROM add_drop_history " +
+                                    "  WHERE student_id=@sid AND course_id=@cid AND action_type='Add'" +
+                                    ") " +
+                                    "INSERT INTO add_drop_history(student_id, course_id, action_type, action_date) " +
+                                    "VALUES(@sid, @cid, 'Add', CAST(GETDATE() AS DATE))", con, tx))
+                                {
+                                    cmd.Parameters.AddWithValue("@sid", StudentId);
+                                    cmd.Parameters.AddWithValue("@cid", courseId);
                                     cmd.ExecuteNonQuery();
                                 }
                             }
@@ -363,7 +380,7 @@ namespace UniversitySystem
                             pnlPaymentForm.Visible = true;
                             pnlSuccess.Visible = false;
                             LoadCourseItems();
-                            SetupVA();
+                            SetupVA(bank);
                             return;
                         }
                     }
@@ -372,11 +389,8 @@ namespace UniversitySystem
             catch (SqlException ex) when (IsConnErr(ex)) { RedirectTimeout(); return; }
             catch (Exception ex) { ShowError("Error: " + ex.Message); return; }
 
-            // ── Payment committed — show success ──
             pnlPaymentForm.Visible = false;
             pnlSuccess.Visible = true;
-
-            // FIX: Tell JS the payment is done (hides processing overlay)
             hfPaymentDone.Value = "1";
 
             string firstPid = paymentIds.Count > 0 ? paymentIds[0].ToString() : "0";
@@ -407,7 +421,8 @@ namespace UniversitySystem
 
         public class CourseItem
         {
-            public string CourseId { get; set; }
+            public int CourseId { get; set; }
+            public string CourseCode { get; set; }
             public string CourseName { get; set; }
             public int Credits { get; set; }
             public decimal Fee { get; set; }

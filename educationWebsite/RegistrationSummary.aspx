@@ -140,7 +140,7 @@
                         <asp:TemplateField HeaderText="Course">
                             <ItemTemplate>
                                 <div class="course-code"><%# Eval("course_code") %></div>
-                                <div style="font-size:.8rem;color:var(--muted)"><%# Eval("course_name") %></div>
+                                <div style="font-size:.8rem;color:white"><%# Eval("course_name") %></div>
                             </ItemTemplate>
                         </asp:TemplateField>
                         <asp:BoundField DataField="lecturer"  HeaderText="Lecturer"/>

@@ -100,12 +100,13 @@
                     <HeaderTemplate>
                         <table class="data-table">
                         <thead><tr>
-                            <th>Course Code</th><th>Course Name</th><th>Credits</th><th>Lecturer</th><th>Room</th><th style="text-align:center">Action</th>
+                            <th>Course Code
+                            </th><th>Course Name</th><th>Credits</th><th>Lecturer</th><th>Room</th><th style="text-align:center">Action</th>
                         </tr></thead><tbody>
                     </HeaderTemplate>
                     <ItemTemplate>
                         <tr>
-                            <td><span class="cc-code"><%# Eval("CourseId") %></span></td>
+                            <td><span class="cc-code"><%# Eval("CourseCode") %></span></td>
                             <td><%# Eval("CourseName") %></td>
                             <td><%# Eval("Credits") %></td>
                             <td><%# Eval("LectureName") %></td>
@@ -139,7 +140,7 @@
                     </HeaderTemplate>
                     <ItemTemplate>
                         <tr>
-                            <td><span class="cc-code"><%# Eval("CourseId") %></span></td>
+                            <td><span class="cc-code"><%# Eval("CourseCode") %></span></td>
                             <td><%# Eval("CourseName") %></td>
                             <td><%# Eval("Credits") %></td>
                             <td><%# Eval("LectureName") %></td>

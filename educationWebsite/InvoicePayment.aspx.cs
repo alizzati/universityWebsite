@@ -103,7 +103,10 @@ namespace UniversitySystem
                     "       'Course Fee' AS Type, " +
                     "       FORMAT(p.created_at,'dd/MM/yyyy HH:mm') AS DocumentDate, " +
                     "       p.amount AS Amount, p.status AS Status, " +
-                    "       p.course_id, ISNULL(c.course_name,'—') AS course_name, p.bank_name " +
+                    "       p.course_id, " +
+                    "       ISNULL(c.course_code, p.course_id) AS course_code, " +
+                    "       ISNULL(c.course_name,'—') AS course_name, " +
+                    "       ISNULL(p.bank_name,'Online') AS bank_name " +
                     "FROM payment p " +
                     "LEFT JOIN course c ON c.course_id = p.course_id " +
                     "WHERE p.student_id = @sid " +
@@ -123,7 +126,10 @@ namespace UniversitySystem
                     "       'Course Fee' AS Type, " +
                     "       FORMAT(p.created_at,'dd/MM/yyyy HH:mm') AS DocumentDate, " +
                     "       p.amount AS Amount, p.status AS Status, " +
-                    "       p.course_id, ISNULL(c.course_name,'—') AS course_name, p.bank_name " +
+                    "       p.course_id, " +
+                    "       ISNULL(c.course_code, p.course_id) AS course_code, " +
+                    "       ISNULL(c.course_name,'—') AS course_name, " +
+                    "       ISNULL(p.bank_name,'Online') AS bank_name " +
                     "FROM payment p " +
                     "LEFT JOIN course c ON c.course_id = p.course_id " +
                     "WHERE p.student_id=@sid AND MONTH(p.created_at)=@m AND YEAR(p.created_at)=@y " +

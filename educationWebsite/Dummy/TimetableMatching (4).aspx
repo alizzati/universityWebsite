@@ -214,14 +214,14 @@
         var tbody = document.querySelector('#<%= rptCourses.ClientID %> tr, .data-table tbody tr');
         var allRows = document.querySelectorAll('.data-table tbody tr');
         var totalCredits = 0;
-        allRows.forEach(function (tr, i) {
+        allRows.forEach(function(tr, i) {
             var cells = tr.querySelectorAll('td');
             if (cells.length < 6) return;
             var credits = parseFloat(cells[4].innerText) || 0;
             totalCredits += credits;
             courseRows +=
                 '<tr>' +
-                '<td>' + (i + 1) + '</td>' +
+                '<td>' + (i+1) + '</td>' +
                 '<td><b>' + cells[1].innerText.trim() + '</b></td>' +
                 '<td>' + cells[2].innerText.trim() + '</td>' +
                 '<td>' + cells[3].innerText.trim() + '</td>' +
@@ -297,7 +297,7 @@
         );
         pw.document.close();
         pw.focus();
-        setTimeout(function () { pw.print(); pw.close(); }, 600);
+        setTimeout(function() { pw.print(); pw.close(); }, 600);
     }
 </script>
 </body>

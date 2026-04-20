@@ -45,8 +45,7 @@ namespace UniversitySystem
 
         private void LoadStudentInfo()
         {
-            const string sql =
-                "SELECT student_id, std_name FROM student WHERE student_id = @sid";
+            const string sql = "SELECT student_id, std_name FROM student WHERE student_id = @sid";
             try
             {
                 using (var con = new SqlConnection(ConnStr))
@@ -71,39 +70,80 @@ namespace UniversitySystem
 
         private void LoadCourses()
         {
-            const string sql =
-                "SELECT c.course_id, c.course_name " +
-                "FROM   enrollment e " +
-                "JOIN   course c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
-                "WHERE  e.student_id = @sid AND e.enrol_status = 'Active' " +
-                "ORDER  BY c.course_id";
+            if (StudentId == null) return;
 
-            var list = new List<CourseRow>();
+            const string sql = @"
+            SELECT 
+                c.course_id,
+                c.course_code, 
+                c.course_name, 
+                c.credits, 
+                ISNULL(l.lecture_name, '-') AS lecture_name, 
+                ISNULL(c.class_room, 'TBA') AS Venue,
+                c.[day] AS Day,
+                c.start_time AS StartTime, 
+                c.end_time AS EndTime
+            FROM enrollment e
+            JOIN course c ON e.course_id = c.course_id
+            LEFT JOIN lecture l ON c.lecture_id = l.lecture_id
+            WHERE e.student_id = @sid AND e.enrol_status = 'Active'";
+
             try
             {
                 using (var con = new SqlConnection(ConnStr))
                 using (var cmd = new SqlCommand(sql, con))
                 {
-                    cmd.CommandTimeout = 15;
-                    cmd.Parameters.AddWithValue("@sid", StudentId.Value);
+                    cmd.Parameters.AddWithValue("@sid", StudentId);
                     con.Open();
                     using (var dr = cmd.ExecuteReader())
+                    {
+                        var scheduleList = new List<ScheduleRow>();
+                        var courseList = new List<CourseRow>();
+
                         while (dr.Read())
-                            list.Add(new CourseRow
+                        {
+                            string startRaw = dr["StartTime"].ToString();
+                            string endRaw = dr["EndTime"].ToString();
+
+                            scheduleList.Add(new ScheduleRow
                             {
-                                CourseCode = dr["course_id"].ToString(),
+                                CourseCode = dr["course_code"].ToString(),
                                 CourseName = dr["course_name"].ToString(),
-                                Section = "—"
+                                Credits = Convert.ToInt32(dr["credits"]),
+                                LectureName = dr["lecture_name"].ToString(),
+                                Day = NormalizeDay(dr["Day"].ToString()),
+                                StartTime = startRaw.Length >= 5 ? startRaw.Substring(0, 5) : startRaw,
+                                EndTime = endRaw.Length >= 5 ? endRaw.Substring(0, 5) : endRaw,
+                                Venue = dr["Venue"].ToString(),
+                                Color = _colors[scheduleList.Count % _colors.Length]
                             });
+
+                            courseList.Add(new CourseRow
+                            {
+                                CourseCode = dr["course_code"].ToString(),
+                                CourseName = dr["course_name"].ToString(),
+                                LectureName = dr["lecture_name"].ToString(),
+                                Credits = Convert.ToInt32(dr["credits"]),
+                                Day = NormalizeDay(dr["Day"].ToString())
+                            });
+                        }
+
+                        // Bind table Enrolled Courses
+                        rptCourses.DataSource = courseList;
+                        rptCourses.DataBind();
+
+                        // Bind schedule list & timetable grid
+                        rptSchedule.DataSource = scheduleList;
+                        rptSchedule.DataBind();
+                        litTimetable.Text = BuildGridHtml(scheduleList);
+                    }
                 }
             }
-            catch (SqlException ex) when (IsConnErr(ex)) { RedirectTimeout(); return; }
-            catch (Exception ex) { ShowError("Failed to load courses: " + ex.Message); }
-
-            rptCourses.DataSource = list;
-            rptCourses.DataBind();
+            catch (Exception ex)
+            {
+                ShowError("Error loading enrolled courses: " + ex.Message);
+            }
         }
-
         protected void btnShow_Click(object sender, EventArgs e)
         {
             if (StudentId == null) { RedirectTimeout(); return; }
@@ -112,21 +152,31 @@ namespace UniversitySystem
 
         private void LoadTimetable(bool showAll)
         {
-            const string sql =
-                "SELECT " +
-                "    c.course_id, c.course_name, " +
-                "    t.day_of_week, t.start_time, t.end_time, " +
-                "    ISNULL(c.class_room, 'TBA') AS venue " +
-                "FROM   enrollment e " +
-                "JOIN   course c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
-                "JOIN   timetable t ON t.course_id = e.course_id " +
-                "WHERE  e.student_id = @sid AND e.enrol_status = 'Active' " +
-                "ORDER BY " +
-                "    CASE t.day_of_week " +
-                "        WHEN 'MON' THEN 1 WHEN 'TUE' THEN 2 WHEN 'WED' THEN 3 " +
-                "        WHEN 'THU' THEN 4 WHEN 'FRI' THEN 5 WHEN 'SAT' THEN 6 " +
-                "        ELSE 7 END, " +
-                "    t.start_time";
+            // FIX: Hapus JOIN timetable, gunakan kolom dari tabel course (c)
+            const string sql = @"
+            SELECT 
+                c.course_code, 
+                c.course_name,
+                ISNULL(l.lecture_name, '-') AS lecture_name,
+                c.credits,
+                c.[day] AS day_of_week, 
+                c.start_time, 
+                c.end_time, 
+                ISNULL(c.class_room, 'TBA') AS venue 
+            FROM enrollment e 
+            JOIN course c ON c.course_id = e.course_id
+            LEFT JOIN lecture l ON c.lecture_id = l.lecture_id
+            WHERE e.student_id = @sid AND e.enrol_status = 'Active' 
+            ORDER BY 
+                CASE c.[day] 
+                    WHEN 'Monday' THEN 1 
+                    WHEN 'Tuesday' THEN 2 
+                    WHEN 'Wednesday' THEN 3 
+                    WHEN 'Thursday' THEN 4 
+                    WHEN 'Friday' THEN 5 
+                    WHEN 'Saturday' THEN 6
+                    ELSE 7 END, 
+                c.start_time";
 
             var schedules = new List<ScheduleRow>();
 
@@ -144,7 +194,8 @@ namespace UniversitySystem
                         var colors = new Dictionary<string, string>();
                         while (dr.Read())
                         {
-                            string code = dr["course_id"].ToString();
+                            // Gunakan course_code sebagai identifier (misal: NET3204)
+                            string code = dr["course_code"].ToString();
                             if (!colors.ContainsKey(code))
                                 colors[code] = _colors[colorIdx++ % _colors.Length];
 
@@ -152,7 +203,9 @@ namespace UniversitySystem
                             {
                                 CourseCode = code,
                                 CourseName = dr["course_name"].ToString(),
-                                Day = dr["day_of_week"].ToString().ToUpper(),
+                                LectureName = dr["lecture_name"].ToString(),
+                                Credits = dr["credits"] != DBNull.Value ? Convert.ToInt32(dr["credits"]) : 0,
+                                Day = NormalizeDay(dr["day_of_week"].ToString()),
                                 StartTime = FormatTime(dr["start_time"]),
                                 EndTime = FormatTime(dr["end_time"]),
                                 Venue = dr["venue"].ToString(),
@@ -164,7 +217,6 @@ namespace UniversitySystem
             }
             catch (SqlException ex) when (IsConnErr(ex)) { RedirectTimeout(); return; }
             catch (Exception ex) { ShowError("Timetable error: " + ex.Message); return; }
-
             if (schedules.Count == 0)
             {
                 ShowError("No timetable data found for your enrolled courses. Please contact the administration.");
@@ -246,6 +298,22 @@ namespace UniversitySystem
             return val.ToString();
         }
 
+        // Normalises full day name or abbreviation → 3-letter uppercase used by the grid
+        private static string NormalizeDay(string day)
+        {
+            if (string.IsNullOrWhiteSpace(day)) return "";
+            switch (day.Trim().ToUpper())
+            {
+                case "MONDAY": case "MON": return "MON";
+                case "TUESDAY": case "TUE": return "TUE";
+                case "WEDNESDAY": case "WED": return "WED";
+                case "THURSDAY": case "THU": return "THU";
+                case "FRIDAY": case "FRI": return "FRI";
+                case "SATURDAY": case "SAT": return "SAT";
+                default: return day.Substring(0, Math.Min(3, day.Length)).ToUpper();
+            }
+        }
+
         private static bool IsConnErr(SqlException ex) =>
             ex.Number == -2 || ex.Number == 2 || ex.Number == 53 ||
             ex.Message.IndexOf("timeout", StringComparison.OrdinalIgnoreCase) >= 0;
@@ -262,7 +330,9 @@ namespace UniversitySystem
         {
             public string CourseCode { get; set; }
             public string CourseName { get; set; }
-            public string Section { get; set; }
+            public string LectureName { get; set; }
+            public int Credits { get; set; }
+            public string Day { get; set; }
         }
         public class ScheduleRow
         {

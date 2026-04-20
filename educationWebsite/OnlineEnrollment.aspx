@@ -139,7 +139,7 @@
                                 Enabled='<%# Eval("EnrolStatus").ToString() == "None" %>'
                                 onchange="updateCount()"/>
                         </td>
-                        <td><span class="cc-code"><%# Eval("CourseId") %></span></td>
+                        <td><span class="cc-code"><%# Eval("CourseCode") %></span></td>
                         <td><%# Eval("CourseName") %></td>
                         <td><%# Eval("Credits") %></td>
                         <td><%# Eval("LectureName") %></td>
@@ -178,7 +178,7 @@
 
     </div>
 </form>
-<script src="~/Scripts/NavBar.js"></script>
+<script src="Scripts/NavBar.js"></script>
 <script>
     function updateCount() {
         var chks = document.querySelectorAll('.enrol-chk input[type=checkbox]:not(:disabled)');

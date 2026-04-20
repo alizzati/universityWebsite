@@ -1,18 +1,4 @@
-﻿// ================================================================
-//  RegistrationSummary.aspx.cs — FIXED
-//
-//  FIXES:
-//  1. LoadSummaryData: removed c.day / c.start_time / c.end_time
-//     (these columns don't exist in course per ERD).
-//     Schedule column now uses timetable table with LEFT JOIN.
-//
-//  2. LoadTimetable: reads from timetable table with error handling.
-//     Falls back to course columns if timetable table doesn't exist.
-//
-//  3. LoadHistory: shows add_drop_history + enrollment fallback.
-//     Same fix as AddDropHistory.aspx.cs.
-// ================================================================
-using System;
+﻿using System;
 using System.Data;
 using System.Data.SqlClient;
 using System.Text;
@@ -22,11 +8,8 @@ namespace UniversitySystem
 {
     public partial class RegistrationSummary : Page
     {
-        private string ConnStr =>
+        private string connectionString =
             System.Configuration.ConfigurationManager.ConnectionStrings["UniversityDB"].ConnectionString;
-
-        private int StudentId =>
-            Session["StudentId"] != null ? Convert.ToInt32(Session["StudentId"]) : 0;
 
         protected void Page_Load(object sender, EventArgs e)
         {
@@ -43,17 +26,17 @@ namespace UniversitySystem
 
         private void LoadSummaryData()
         {
+            int studentId = Convert.ToInt32(Session["StudentId"]);
             try
             {
-                using (var con = new SqlConnection(ConnStr))
+                using (var conn = new SqlConnection(connectionString))
                 {
-                    con.Open();
+                    conn.Open();
 
-                    // Student info
                     using (var cmd = new SqlCommand(
-                        "SELECT student_id, std_name FROM student WHERE student_id=@sid", con))
+                        "SELECT student_id, std_name FROM student WHERE student_id = @sid", conn))
                     {
-                        cmd.Parameters.AddWithValue("@sid", StudentId);
+                        cmd.Parameters.AddWithValue("@sid", studentId);
                         using (var dr = cmd.ExecuteReader())
                             if (dr.Read())
                             {
@@ -62,219 +45,164 @@ namespace UniversitySystem
                             }
                     }
 
-                    // FIX: Removed c.day, c.start_time, c.end_time (not in ERD)
-                    // Schedule column: try timetable table, fallback to "TBA"
+                    // course_id sekarang INT di semua tabel — JOIN langsung tanpa CAST
                     const string coursesQuery =
                         "SELECT " +
-                        "    c.course_id   AS course_code, " +
+                        "    ISNULL(c.course_code, CAST(c.course_id AS VARCHAR(20))) AS course_code, " +
                         "    c.course_name, " +
                         "    ISNULL(l.lecture_name, '—') AS lecturer, " +
-                        "    ISNULL(c.credits, 0)        AS credits, " +
-                        "    ISNULL(c.class_room, '—')   AS room, " +
-                        "    e.enrol_status              AS status, " +
-                        "    ISNULL(( " +
+                        "    ISNULL(c.credits, 0) AS credits, " +
+                        "    ISNULL(c.class_room, '—') AS room, " +
+                        "    e.enrol_status AS status, " +
+                        "    ISNULL((" +
                         "        SELECT TOP 1 " +
-                        "            t.day_of_week + ' ' + " +
-                        "            CONVERT(VARCHAR(5),t.start_time,108) + '-' + " +
-                        "            CONVERT(VARCHAR(5),t.end_time,108) " +
-                        "        FROM timetable t WHERE t.course_id = e.course_id " +
-                        "    ), 'TBA') AS schedule " +
+                        "            CONVERT(varchar, c2.day) + ' ' + " +
+                        "            CONVERT(varchar, c2.start_time, 108) + '-' + " +
+                        "            CONVERT(varchar, c2.end_time, 108) " +
+                        "        FROM course c2 WHERE c2.course_id = e.course_id" +
+                        "    ), '—') AS schedule " +
                         "FROM enrollment e " +
-                        "JOIN course c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
+                        "JOIN course c ON c.course_id = e.course_id " +
                         "LEFT JOIN lecture l ON l.lecture_id = c.lecture_id " +
-                        "WHERE e.student_id=@sid AND e.enrol_status IN('Active','Enrolled') " +
+                        "WHERE e.student_id = @sid " +
+                        "  AND e.enrol_status = 'Active' " +
                         "ORDER BY c.course_id";
 
-                    DataTable dt;
-                    try
+                    using (var cmd = new SqlCommand(coursesQuery, conn))
                     {
-                        using (var cmd = new SqlCommand(coursesQuery, con))
-                        {
-                            cmd.Parameters.AddWithValue("@sid", StudentId);
-                            var da = new SqlDataAdapter(cmd);
-                            dt = new DataTable();
-                            da.Fill(dt);
-                        }
+                        cmd.Parameters.AddWithValue("@sid", studentId);
+                        var da = new SqlDataAdapter(cmd);
+                        var dt = new DataTable();
+                        da.Fill(dt);
+
+                        gvRegisteredCourses.DataSource = dt;
+                        gvRegisteredCourses.DataBind();
+
+                        int totalCourses = dt.Rows.Count;
+                        int totalCredits = 0;
+                        foreach (DataRow row in dt.Rows)
+                            totalCredits += Convert.ToInt32(row["credits"]);
+
+                        lblTotalCourses.Text = totalCourses.ToString();
+                        lblTotalCredits.Text = totalCredits.ToString();
+                        lblTotalHours.Text = (totalCredits * 2).ToString();
                     }
-                    catch (SqlException ex) when (ex.Number == 208) // timetable table missing
-                    {
-                        // Fallback: same query without timetable subquery
-                        const string fallbackQuery =
-                            "SELECT c.course_id AS course_code, c.course_name, " +
-                            "ISNULL(l.lecture_name,'—') AS lecturer, ISNULL(c.credits,0) AS credits, " +
-                            "ISNULL(c.class_room,'—') AS room, e.enrol_status AS status, 'TBA' AS schedule " +
-                            "FROM enrollment e " +
-                            "JOIN course c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
-                            "LEFT JOIN lecture l ON l.lecture_id = c.lecture_id " +
-                            "WHERE e.student_id=@sid AND e.enrol_status IN('Active','Enrolled') " +
-                            "ORDER BY c.course_id";
-                        using (var cmd = new SqlCommand(fallbackQuery, con))
-                        {
-                            cmd.Parameters.AddWithValue("@sid", StudentId);
-                            var da = new SqlDataAdapter(cmd);
-                            dt = new DataTable();
-                            da.Fill(dt);
-                        }
-                    }
-
-                    gvRegisteredCourses.DataSource = dt;
-                    gvRegisteredCourses.DataBind();
-
-                    int totalCourses = dt.Rows.Count;
-                    int totalCredits = 0;
-                    foreach (DataRow row in dt.Rows)
-                        totalCredits += Convert.ToInt32(row["credits"]);
-
-                    lblTotalCourses.Text = totalCourses.ToString();
-                    lblTotalCredits.Text = totalCredits.ToString();
-                    lblTotalHours.Text = (totalCredits * 2).ToString();
                 }
             }
             catch { }
         }
-
         private void LoadTimetable()
         {
+            if (Session["StudentId"] == null) return;
+            int studentId = Convert.ToInt32(Session["StudentId"]);
+
             try
             {
-                using (var con = new SqlConnection(ConnStr))
+                using (var conn = new SqlConnection(connectionString))
                 {
-                    DataTable dt = null;
+                    // 1. Tambahkan kolom 'day' (bukan day_of_week) dan pastikan start_time ikut diambil
+                    const string query = @"
+                SELECT 
+                    c.course_code, 
+                    c.course_name, 
+                    c.[day], 
+                    c.start_time,
+                    c.class_room
+                FROM enrollment e
+                JOIN course c ON e.course_id = c.course_id
+                WHERE e.student_id = @sid AND e.enrol_status = 'Active'";
 
-                    // Attempt 1: use timetable table (per ERD)
-                    try
+                    using (var cmd = new SqlCommand(query, conn))
                     {
-                        const string query =
-                            "SELECT c.course_id, c.course_name, ISNULL(c.class_room,'—') AS class_room, " +
-                            "t.day_of_week, " +
-                            "CONVERT(VARCHAR(5),t.start_time,108) AS start_time, " +
-                            "CONVERT(VARCHAR(5),t.end_time,108) AS end_time " +
-                            "FROM enrollment e " +
-                            "JOIN course c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
-                            "JOIN timetable t ON t.course_id = e.course_id " +
-                            "WHERE e.student_id=@sid AND e.enrol_status='Active' " +
-                            "ORDER BY t.day_of_week, t.start_time";
+                        cmd.Parameters.AddWithValue("@sid", studentId);
+                        var da = new SqlDataAdapter(cmd);
+                        var dt = new DataTable();
+                        conn.Open();
+                        da.Fill(dt);
 
-                        using (var cmd = new SqlCommand(query, con))
+                        if (dt.Rows.Count == 0)
                         {
-                            cmd.Parameters.AddWithValue("@sid", StudentId);
-                            var da = new SqlDataAdapter(cmd);
-                            dt = new DataTable();
-                            con.Open();
-                            da.Fill(dt);
+                            litTimetable.Text = "<div style='padding:2rem;text-align:center;color:var(--muted);'>No active courses found. Please complete payment first.</div>";
+                            return;
                         }
-                    }
-                    catch (SqlException ex) when (ex.Number == 208)
-                    {
-                        // timetable table doesn't exist — try course columns
-                        if (con.State != System.Data.ConnectionState.Open) con.Open();
-                        try
+
+                        var sb = new StringBuilder();
+                        string[] timeSlots = { "08", "09", "10", "11", "12", "13", "14", "15", "16", "17" };
+
+                        // 2. Samakan format hari dengan yang ada di Database (Monday, Tuesday, dst)
+                        string[] days = { "Monday", "Tuesday", "Wednesday", "Thursday", "Friday" };
+
+                        foreach (string time in timeSlots)
                         {
-                            const string fallback =
-                                "SELECT c.course_id, c.course_name, ISNULL(c.class_room,'—') AS class_room, " +
-                                "    CASE WHEN COL_LENGTH('course','day_of_week') IS NOT NULL THEN c.day_of_week " +
-                                "         WHEN COL_LENGTH('course','day') IS NOT NULL THEN c.day ELSE 'MON' END AS day_of_week, " +
-                                "    CASE WHEN COL_LENGTH('course','start_time') IS NOT NULL THEN CONVERT(VARCHAR(5),c.start_time,108) ELSE '08:00' END AS start_time, " +
-                                "    CASE WHEN COL_LENGTH('course','end_time') IS NOT NULL THEN CONVERT(VARCHAR(5),c.end_time,108) ELSE '10:00' END AS end_time " +
-                                "FROM enrollment e " +
-                                "JOIN course c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
-                                "WHERE e.student_id=@sid AND e.enrol_status='Active' " +
-                                "ORDER BY c.course_id";
-                            using (var cmd2 = new SqlCommand(fallback, con))
+                            sb.AppendFormat("<div class='timetable-time'>{0}:00</div>", time);
+                            foreach (string dayName in days)
                             {
-                                cmd2.Parameters.AddWithValue("@sid", StudentId);
-                                var da = new SqlDataAdapter(cmd2);
-                                dt = new DataTable();
-                                da.Fill(dt);
-                            }
-                        }
-                        catch { }
-                    }
+                                sb.Append("<div class='timetable-slot'>");
+                                foreach (DataRow cls in dt.Rows)
+                                {
+                                    // 3. Gunakan nama kolom [day] sesuai Database
+                                    string dbDay = cls["day"].ToString();
 
-                    if (dt == null || dt.Rows.Count == 0)
-                    {
-                        litTimetable.Text = "<div style='padding:2rem;text-align:center;color:var(--muted);'>No timetable data available. Please ensure courses have been scheduled.</div>";
-                        return;
-                    }
+                                    // Ambil jam (HH) dari start_time
+                                    string dbStartHour = "";
+                                    if (cls["start_time"] != DBNull.Value)
+                                    {
+                                        // Tipe TIME di SQL dibaca sebagai TimeSpan di C#
+                                        TimeSpan ts = (TimeSpan)cls["start_time"];
+                                        dbStartHour = ts.Hours.ToString("D2");
+                                    }
 
-                    var sb = new StringBuilder();
-                    string[] timeSlots = { "08", "09", "10", "11", "12", "13", "14", "15", "16", "17" };
-                    string[] days = { "MON", "TUE", "WED", "THU", "FRI" };
-
-                    foreach (string time in timeSlots)
-                    {
-                        sb.AppendFormat("<div class='timetable-time'>{0}:00</div>", time);
-                        foreach (string day in days)
-                        {
-                            sb.Append("<div class='timetable-slot'>");
-                            foreach (DataRow cls in dt.Rows)
-                            {
-                                string dow = cls["day_of_week"]?.ToString()?.ToUpper() ?? "";
-                                string st = cls["start_time"]?.ToString() ?? "";
-                                string stHH = st.Length >= 2 ? st.Substring(0, 2) : "";
-                                if (dow != day || stHH != time) continue;
-                                sb.Append("<div class='class-block'>");
-                                sb.AppendFormat("<div class='course-name'>{0}</div>",
-                                    System.Web.HttpUtility.HtmlEncode(cls["course_id"].ToString()));
-                                sb.AppendFormat("<div class='room'>&#127979; {0}</div>",
-                                    System.Web.HttpUtility.HtmlEncode(cls["class_room"].ToString()));
+                                    // Bandingkan hari dan jam
+                                    if (dbDay.Equals(dayName, StringComparison.OrdinalIgnoreCase) && dbStartHour == time)
+                                    {
+                                        sb.Append("<div class='class-block'>");
+                                        sb.AppendFormat("<div class='course-name'>{0}</div>",
+                                            System.Web.HttpUtility.HtmlEncode(cls["course_code"].ToString()));
+                                        sb.AppendFormat("<div class='room'>&#127979; {0}</div>",
+                                            System.Web.HttpUtility.HtmlEncode(cls["class_room"].ToString()));
+                                        sb.Append("</div>");
+                                    }
+                                }
                                 sb.Append("</div>");
                             }
-                            sb.Append("</div>");
                         }
+                        litTimetable.Text = sb.ToString();
                     }
-                    litTimetable.Text = sb.ToString();
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                litTimetable.Text = "<div style='padding:2rem;text-align:center;color:var(--muted);'>Unable to load timetable.</div>";
+                litTimetable.Text = "<div style='padding:2rem;text-align:center;color:red;'>Error: " + ex.Message + "</div>";
             }
         }
 
         private void LoadHistory()
         {
+            int studentId = Convert.ToInt32(Session["StudentId"]);
             try
             {
-                using (var con = new SqlConnection(ConnStr))
+                using (var conn = new SqlConnection(connectionString))
                 {
-                    // Primary: real add_drop_history records
+                    // add_drop_history.course_id = INT FK → course.course_id INT
                     const string query =
-                        "SELECT h.action_date, " +
-                        "ISNULL(c.course_id, CAST(h.course_id AS VARCHAR)) AS course_code, " +
-                        "ISNULL(c.course_name, 'Unknown') AS course_name, " +
-                        "h.action_type, 'System' AS processed_by " +
+                        "SELECT " +
+                        "    h.action_date, " +
+                        "    ISNULL(c.course_code, CAST(c.course_id AS VARCHAR(20))) AS course_code, " +
+                        "    ISNULL(c.course_name, 'Unknown') AS course_name, " +
+                        "    h.action_type, " +
+                        "    'System' AS processed_by " +
                         "FROM add_drop_history h " +
-                        "LEFT JOIN course c ON c.course_id = CAST(h.course_id AS VARCHAR(20)) " +
-                        "WHERE h.student_id=@sid ORDER BY h.action_date DESC";
+                        "LEFT JOIN course c ON c.course_id = h.course_id " +
+                        "WHERE h.student_id = @sid " +
+                        "ORDER BY h.action_date DESC";
 
-                    using (var cmd = new SqlCommand(query, con))
+                    using (var cmd = new SqlCommand(query, conn))
                     {
-                        cmd.Parameters.AddWithValue("@sid", StudentId);
+                        cmd.Parameters.AddWithValue("@sid", studentId);
                         var da = new SqlDataAdapter(cmd);
                         var dt = new DataTable();
-                        con.Open();
+                        conn.Open();
                         da.Fill(dt);
-
-                        // Fallback: synthesise from enrollment if history is empty
-                        if (dt.Rows.Count == 0)
-                        {
-                            const string fallback =
-                                "SELECT CAST(ISNULL(p.created_at, e.enrol_data) AS DATE) AS action_date, " +
-                                "c.course_id AS course_code, c.course_name, " +
-                                "'Add' AS action_type, 'System' AS processed_by " +
-                                "FROM enrollment e " +
-                                "JOIN course c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
-                                "LEFT JOIN payment p ON p.student_id=e.student_id AND p.course_id=c.course_id AND p.status='Success' " +
-                                "WHERE e.student_id=@sid AND e.enrol_status='Active' " +
-                                "ORDER BY action_date DESC";
-                            using (var cmd2 = new SqlCommand(fallback, con))
-                            {
-                                cmd2.Parameters.AddWithValue("@sid", StudentId);
-                                new SqlDataAdapter(cmd2).Fill(dt);
-                            }
-                        }
-
                         gvHistory.DataSource = dt;
                         gvHistory.DataBind();
                     }

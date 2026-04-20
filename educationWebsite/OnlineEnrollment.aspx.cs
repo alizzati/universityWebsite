@@ -31,22 +31,25 @@ namespace UniversitySystem
 
         private void LoadCourses()
         {
+            // course_id sekarang INT IDENTITY — tidak perlu CAST
+            // Tampilkan course_code (VARCHAR) ke user untuk label
             const string sql =
                 "SELECT " +
-                "    c.course_id, c.course_name, " +
-                "    ISNULL(c.credits, 3)        AS credits, " +
+                "    c.course_id, " +
+                "    ISNULL(c.course_code, CAST(c.course_id AS VARCHAR(20))) AS course_code, " +
+                "    c.course_name, " +
+                "    ISNULL(c.credits, 3) AS credits, " +
                 "    ISNULL(l.lecture_name, '—') AS lecture_name, " +
-                "    ISNULL(c.class_room,  '—')  AS class_room, " +
-                "    ISNULL((" +
-                "        SELECT TOP 1 enrol_status " +
-                "        FROM enrollment e " +
-                "        WHERE e.student_id = @sid " +
-                "          AND CAST(e.course_id AS VARCHAR(20)) = c.course_id " +
-                "        ORDER BY enrollment_id DESC" +
-                "    ), 'None') AS enrol_status " +
+                "    ISNULL(c.class_room, '—') AS class_room " +
                 "FROM course c " +
                 "LEFT JOIN lecture l ON l.lecture_id = c.lecture_id " +
-                "ORDER BY c.course_id";
+                "WHERE NOT EXISTS ( " +
+                "    SELECT 1 FROM enrollment e " +
+                "    WHERE e.student_id = @sid " +
+                "      AND e.course_id  = c.course_id " +
+                "      AND e.enrol_status IN ('Active', 'Pending Payment') " +
+                ") " +
+                "ORDER BY c.course_id ASC";
 
             var list = new List<CourseItem>();
             try
@@ -61,12 +64,13 @@ namespace UniversitySystem
                         while (dr.Read())
                             list.Add(new CourseItem
                             {
-                                CourseId = dr["course_id"].ToString(),
+                                CourseId = Convert.ToInt32(dr["course_id"]),
+                                CourseCode = dr["course_code"].ToString(),
                                 CourseName = dr["course_name"].ToString(),
                                 Credits = Convert.ToInt32(dr["credits"]),
                                 LectureName = dr["lecture_name"].ToString(),
                                 ClassRoom = dr["class_room"].ToString(),
-                                EnrolStatus = NormaliseStatus(dr["enrol_status"].ToString())
+                                EnrolStatus = "None"
                             });
                 }
             }
@@ -74,15 +78,11 @@ namespace UniversitySystem
             catch (Exception ex) { ShowError("Failed to load courses: " + ex.Message); return; }
 
             phEmpty.Visible = (list.Count == 0);
-            rptCourses.DataSource = list;
-            rptCourses.DataBind();
-        }
-
-        private static string NormaliseStatus(string dbStatus)
-        {
-            if (dbStatus == "Active") return "Active";
-            if (dbStatus == "Pending Payment") return "Pending Payment";
-            return "None";
+            if (list.Count > 0)
+            {
+                rptCourses.DataSource = list;
+                rptCourses.DataBind();
+            }
         }
 
         private void LoadCreditHours()
@@ -90,7 +90,7 @@ namespace UniversitySystem
             const string sql =
                 "SELECT ISNULL(SUM(c.credits), 0) " +
                 "FROM enrollment e " +
-                "JOIN course c ON c.course_id = CAST(e.course_id AS VARCHAR(20)) " +
+                "JOIN course c ON c.course_id = e.course_id " +
                 "WHERE e.student_id = @sid AND e.enrol_status = 'Active'";
             try
             {
@@ -107,15 +107,16 @@ namespace UniversitySystem
 
         protected void btnProceedPayment_Click(object sender, EventArgs e)
         {
-            var selected = new List<string>();
+            var selected = new List<int>(); // sekarang pakai INT
 
             foreach (RepeaterItem item in rptCourses.Items)
             {
                 var chk = item.FindControl("chkEnrol") as CheckBox;
                 if (chk == null || !chk.Checked) continue;
                 var hid = item.FindControl("hidCourseId") as HiddenField;
-                if (hid != null && !string.IsNullOrEmpty(hid.Value))
-                    selected.Add(hid.Value);
+                int cid;
+                if (hid != null && int.TryParse(hid.Value, out cid))
+                    selected.Add(cid);
             }
 
             if (selected.Count == 0)
@@ -125,17 +126,19 @@ namespace UniversitySystem
                 return;
             }
 
-            var enrolled = new List<string>();
+            var enrolled = new List<int>();
             try
             {
                 using (var con = new SqlConnection(ConnStr))
                 {
                     con.Open();
-                    foreach (string courseId in selected)
+                    foreach (int courseId in selected)
                     {
+                        // Cek duplikat — INT vs INT, tidak perlu CAST
                         using (var c = new SqlCommand(
                             "SELECT COUNT(*) FROM enrollment " +
-                            "WHERE student_id=@sid AND CAST(course_id AS VARCHAR(20))=@cid " +
+                            "WHERE student_id = @sid " +
+                            "  AND course_id   = @cid " +
                             "  AND enrol_status IN ('Active','Pending Payment')", con))
                         {
                             c.Parameters.AddWithValue("@sid", StudentId);
@@ -143,37 +146,18 @@ namespace UniversitySystem
                             if ((int)c.ExecuteScalar() > 0) continue;
                         }
 
-                        int courseIntId = 0;
-                        using (var c = new SqlCommand(
-                            "SELECT COUNT(*) FROM course c2 WHERE c2.course_id <= @cid", con))
-                        {
-                            c.Parameters.AddWithValue("@cid", courseId);
-                            try { courseIntId = (int)c.ExecuteScalar(); } catch { courseIntId = 1; }
-                        }
-
+                        // INSERT enrollment
+                        // enrollment_id = IDENTITY → tidak perlu diisi
+                        // enrol_data    = kolom tanggal sesuai skema DB
                         using (var cmd = new SqlCommand(
-                            "INSERT INTO enrollment(student_id, course_id, enrol_data, enrol_status, is_completed) " +
-                            "VALUES(@sid, @cid, GETDATE(), 'Pending Payment', 0)", con))
+                            "INSERT INTO enrollment(student_id, course_id, enrol_data, enrol_status, is_completed, is_evaluated) " +
+                            "VALUES(@sid, @cid, GETDATE(), 'Pending Payment', 0, 0)", con))
                         {
                             cmd.Parameters.AddWithValue("@sid", StudentId);
-                            cmd.Parameters.AddWithValue("@cid", courseIntId);
+                            cmd.Parameters.AddWithValue("@cid", courseId);
                             cmd.ExecuteNonQuery();
+                            enrolled.Add(courseId);
                         }
-
-                        enrolled.Add(courseId);
-
-                        try
-                        {
-                            using (var cmd = new SqlCommand(
-                                "INSERT INTO add_drop_history(student_id, course_id, action_type, action_date) " +
-                                "VALUES(@sid, @cid, 'Add', CAST(GETDATE() AS DATE))", con))
-                            {
-                                cmd.Parameters.AddWithValue("@sid", StudentId);
-                                cmd.Parameters.AddWithValue("@cid", courseIntId);
-                                cmd.ExecuteNonQuery();
-                            }
-                        }
-                        catch { }
                     }
                 }
             }
@@ -187,6 +171,7 @@ namespace UniversitySystem
                 return;
             }
 
+            // Kirim INT course_id ke OnlinePayment via querystring
             string courses = string.Join(",", enrolled);
             Response.Redirect("~/OnlinePayment.aspx?courses=" + Server.UrlEncode(courses), false);
             Context.ApplicationInstance.CompleteRequest();
@@ -206,7 +191,8 @@ namespace UniversitySystem
 
         public class CourseItem
         {
-            public string CourseId { get; set; }
+            public int CourseId { get; set; }
+            public string CourseCode { get; set; }
             public string CourseName { get; set; }
             public int Credits { get; set; }
             public string LectureName { get; set; }

@@ -80,9 +80,7 @@
                         <th style="width:40px">No</th>
                         <th>Course Code</th>
                         <th>Course Name</th>
-                        <th>Lecturer</th>
-                        <th style="width:60px">Credits</th>
-                        <th style="width:70px">Day</th>
+                        <th>Section</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -92,9 +90,7 @@
                                 <td class="td-num"><%# Container.ItemIndex + 1 %></td>
                                 <td><span class="course-code-badge"><%# Eval("CourseCode") %></span></td>
                                 <td><%# Eval("CourseName") %></td>
-                                <td><%# Eval("LectureName") %></td>
-                                <td style="text-align:center"><%# Eval("Credits") %></td>
-                                <td><span class="section-badge"><%# Eval("Day") %></span></td>
+                                <td><span class="section-badge"><%# Eval("Section") %></span></td>
                             </tr>
                         </ItemTemplate>
                     </asp:Repeater>
@@ -195,109 +191,41 @@
 
     function printTimetableGrid() {
         var gridEl = document.getElementById('timetableGrid');
-        if (!gridEl) { alert('Please click SHOW TIMETABLE first.'); return; }
+        if (!gridEl) { window.print(); return; }
 
-        // Collect student info from the page
-        var studentId  = document.getElementById('<%= lblStudentId.ClientID %>');
-        var studentName= document.getElementById('<%= lblProgram.ClientID %>');
-        var session    = document.getElementById('<%= lblSession.ClientID %>');
+        var titleEl = document.getElementById('<%= lblTimetableTitle.ClientID %>');
+        var titleText = titleEl ? titleEl.innerText : 'TIMETABLE SCHEDULE';
 
-        var sidText  = studentId   ? studentId.innerText   : '';
-        var nameText = studentName ? studentName.innerText : '';
-        var sessText = session     ? session.innerText     : '';
-        var today    = new Date();
-        var dateStr  = today.toLocaleDateString('en-GB', {day:'2-digit',month:'short',year:'numeric'});
-        var timeStr  = today.toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'});
-
-        // Collect enrolled courses table rows
-        var courseRows = '';
-        var tbody = document.querySelector('#<%= rptCourses.ClientID %> tr, .data-table tbody tr');
-        var allRows = document.querySelectorAll('.data-table tbody tr');
-        var totalCredits = 0;
-        allRows.forEach(function (tr, i) {
-            var cells = tr.querySelectorAll('td');
-            if (cells.length < 6) return;
-            var credits = parseFloat(cells[4].innerText) || 0;
-            totalCredits += credits;
-            courseRows +=
-                '<tr>' +
-                '<td>' + (i + 1) + '</td>' +
-                '<td><b>' + cells[1].innerText.trim() + '</b></td>' +
-                '<td>' + cells[2].innerText.trim() + '</td>' +
-                '<td>' + cells[3].innerText.trim() + '</td>' +
-                '<td style="text-align:center">' + credits.toFixed(2) + '</td>' +
-                '</tr>';
-        });
-        courseRows += '<tr style="font-weight:700;background:#f5f5f5"><td colspan="4" style="text-align:right">Total Credit Hours</td><td style="text-align:center">' + totalCredits.toFixed(2) + '</td></tr>';
-
-        var pw = window.open('', '_blank', 'width=1200,height=800');
-        pw.document.write(
+        var printWindow = window.open('', '_blank', 'width=1100,height=700');
+        printWindow.document.write(
             '<!DOCTYPE html><html><head>' +
             '<meta charset="UTF-8"/>' +
-            '<title>Registration Summary – ' + sidText + '</title>' +
+            '<title>Timetable – UniSys</title>' +
             '<style>' +
-            '  @page { size: A4 landscape; margin: 12mm 10mm; }' +
-            '  * { box-sizing:border-box; margin:0; padding:0; }' +
-            '  body { font-family: Arial, sans-serif; font-size: 11px; color:#111; background:#fff; }' +
-            '  /* ── Header ── */' +
-            '  .hdr { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #C0001D; padding-bottom:6px; margin-bottom:8px; }' +
-            '  .hdr-left h1 { font-size:15px; color:#C0001D; letter-spacing:1px; }' +
-            '  .hdr-left p  { font-size:10px; color:#555; margin-top:2px; }' +
-            '  .hdr-right   { text-align:right; font-size:10px; color:#555; }' +
-            '  /* ── Student Info ── */' +
-            '  .info-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:10px; background:#f9f9f9; padding:7px; border-radius:4px; border:1px solid #E5E5E0; }' +
-            '  .info-item label { display:block; font-size:9px; color:#888; text-transform:uppercase; letter-spacing:.5px; }' +
-            '  .info-item .val  { font-weight:700; font-size:11px; margin-top:2px; }' +
-            '  /* ── Section label ── */' +
-            '  .sec-label { background:#C0001D; color:#fff; font-weight:700; font-size:10px; letter-spacing:1.5px; padding:4px 8px; margin:8px 0 4px; }' +
-            '  /* ── Course table ── */' +
-            '  table.ctbl { width:100%; border-collapse:collapse; margin-bottom:10px; }' +
-            '  table.ctbl th { background:#C0001D; color:#fff; padding:5px 7px; font-size:10px; text-align:left; }' +
-            '  table.ctbl td { border:1px solid #E5E5E0; padding:4px 7px; font-size:10px; }' +
-            '  table.ctbl tr:nth-child(even) td { background:#fafafa; }' +
-            '  /* ── Timetable grid ── */' +
+            '  @page { size: landscape; margin: 15mm; }' +
+            '  body { font-family: DM Sans, Arial, sans-serif; background:#fff; color:#111; margin:0; padding:0; }' +
+            '  h2 { font-family: Bebas Neue, Arial, sans-serif; color:#C0001D; letter-spacing:2px; margin:0 0 12px; }' +
             '  .timetable-grid { width:100%; }' +
-            '  .tg-header-row,.tg-row { display:flex; }' +
-            '  .tg-time-col { width:52px; min-width:52px; font-size:9px; color:#555; padding:3px 4px; border:1px solid #E5E5E0; }' +
-            '  .tg-day-cell { flex:1; font-weight:700; font-size:10px; padding:4px 3px; border:1px solid #E5E5E0; text-align:center; }' +
-            '  .tg-header-cell { background:#C0001D !important; color:#fff !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }' +
-            '  .tg-cell { flex:1; min-height:38px; border:1px solid #E5E5E0; padding:2px; }' +
-            '  .tg-slot { border-radius:3px; padding:3px 4px; margin-bottom:1px; color:#fff !important; border-left:3px solid rgba(0,0,0,.2); -webkit-print-color-adjust:exact; print-color-adjust:exact; }' +
-            '  .tg-slot-code  { display:block; font-weight:700; font-size:9px; }' +
-            '  .tg-slot-venue { display:block; font-size:8px; opacity:.9; }' +
+            '  .tg-header-row, .tg-row { display:flex; }' +
+            '  .tg-time-col { width:70px; min-width:70px; font-size:11px; color:#555; padding:4px 6px; border:1px solid #E5E5E0; }' +
+            '  .tg-day-cell { flex:1; font-weight:700; font-size:12px; padding:6px; border:1px solid #E5E5E0; text-align:center; }' +
+            '  .tg-header-cell { background:#C0001D; color:#fff; }' +
+            '  .tg-cell { flex:1; min-height:48px; border:1px solid #E5E5E0; padding:2px; }' +
+            '  .tg-slot { border-radius:4px; padding:4px 5px; margin-bottom:2px; color:#fff; border-left:3px solid rgba(0,0,0,.25); -webkit-print-color-adjust:exact; print-color-adjust:exact; }' +
+            '  .tg-slot-code { display:block; font-weight:700; font-size:10px; }' +
+            '  .tg-slot-venue { display:block; font-size:9px; opacity:.9; }' +
             '</style>' +
             '</head><body>' +
-
-            // Header
-            '<div class="hdr">' +
-            '  <div class="hdr-left"><h1>INTI INTERNATIONAL UNIVERSITY</h1><p>REGISTRATION SUMMARY</p></div>' +
-            '  <div class="hdr-right">Date: ' + dateStr + '<br>Time: ' + timeStr + '</div>' +
-            '</div>' +
-
-            // Student info
-            '<div class="info-grid">' +
-            '  <div class="info-item"><label>Matriculation No</label><div class="val">' + sidText + '</div></div>' +
-            '  <div class="info-item"><label>Student Name</label><div class="val">' + nameText + '</div></div>' +
-            '  <div class="info-item"><label>Session</label><div class="val">' + sessText + '</div></div>' +
-            '  <div class="info-item"><label>Mode Of Study</label><div class="val">FULL TIME</div></div>' +
-            '</div>' +
-
-            // Enrolled courses
-            '<div class="sec-label">ENROLLED COURSES</div>' +
-            '<table class="ctbl">' +
-            '  <thead><tr><th style="width:30px">No</th><th style="width:110px">Course Code</th><th>Course Name</th><th>Lecturer</th><th style="width:80px;text-align:center">Credit Hours</th></tr></thead>' +
-            '  <tbody>' + courseRows + '</tbody>' +
-            '</table>' +
-
-            // Timetable grid
-            '<div class="sec-label">TIMETABLE SCHEDULE</div>' +
+            '<h2>' + titleText + '</h2>' +
             '<div class="timetable-grid">' + gridEl.innerHTML + '</div>' +
-
             '</body></html>'
         );
-        pw.document.close();
-        pw.focus();
-        setTimeout(function () { pw.print(); pw.close(); }, 600);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(function() {
+            printWindow.print();
+            printWindow.close();
+        }, 500);
     }
 </script>
 </body>
